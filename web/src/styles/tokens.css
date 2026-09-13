@@ -1,0 +1,76 @@
+:root {
+  /* --- Color: dark, mission-control. One accent, semantic states, no decoration. --- */
+  --bg-0: #07090c;
+  --bg-1: #0d1117;
+  --bg-2: #131a22;
+  --bg-3: #1a222c;
+
+  --line: #212a34;
+  --line-strong: #303c49;
+
+  --text-0: #f2f5f8;
+  --text-1: #9fadbb;
+  --text-2: #64707d;
+
+  --accent: #4da3ff;
+  --accent-strong: #7cc4ff;
+  --accent-dim: rgba(77, 163, 255, 0.14);
+  --accent-ink: #041322;
+
+  --success: #35d399;
+  --success-dim: rgba(53, 211, 153, 0.14);
+  --warning: #f5b942;
+  --warning-dim: rgba(245, 185, 66, 0.14);
+  --danger: #ff5c5c;
+  --danger-dim: rgba(255, 92, 92, 0.14);
+
+  --focus-ring: #4da3ff;
+
+  /* --- Type --- */
+  --font-display: "Chakra Petch", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.3125rem;
+  --text-xl: 1.75rem;
+  --text-2xl: clamp(1.75rem, 1.4rem + 1.5vw, 2.5rem);
+  --text-display: clamp(2.25rem, 1.6rem + 2.5vw, 3.5rem);
+
+  --tracking-wide: 0.08em;
+  --tracking-wider: 0.14em;
+
+  /* --- Space --- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* --- Shape: mostly sharp. This is a console, not a brochure. --- */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+
+  /* --- Motion --- */
+  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 110ms;
+  --duration-base: 190ms;
+  --duration-slow: 340ms;
+
+  --sidebar-w: 248px;
+  --header-h: 56px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}
