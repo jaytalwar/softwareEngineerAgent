@@ -1,4 +1,5 @@
 import asyncio
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,11 @@ from mcp.server.mcpserver.exceptions import ToolError as MCPToolError
 from mcp.types import CallToolResult
 
 from swe_agent.mcp_server import build_server
+from swe_agent.trace import Tracer
+
+
+def _read_trace_lines(tracer: Tracer) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in tracer.path.read_text().splitlines()]
 
 _TOOL_NAMES = {
     "read_file",
@@ -152,3 +158,39 @@ def test_get_lint_diagnostics_tool_flags_unused_import(sandbox_copy: Path) -> No
 
     codes = {d["code"] for d in result.structured_content["result"]}
     assert "F401" in codes
+
+
+def test_tracer_records_successful_tool_call(sandbox: Path, tmp_path: Path) -> None:
+    tracer = Tracer("mcp-test", trace_dir=tmp_path)
+    server = build_server(sandbox, tracer=tracer)
+
+    _call(server, "read_file", {"path": "greeter.py"})
+
+    event = _read_trace_lines(tracer)[0]
+    assert event["kind"] == "tool"
+    assert event["name"] == "read_file"
+    assert event["input"] == {"path": "greeter.py"}
+    assert event["output"] == (sandbox / "greeter.py").read_text()
+    assert event["error"] is None
+    assert event["latency_ms"] >= 0.0
+
+
+def test_tracer_records_error_for_translated_tool_failure(sandbox: Path, tmp_path: Path) -> None:
+    tracer = Tracer("mcp-test", trace_dir=tmp_path)
+    server = build_server(sandbox, tracer=tracer)
+
+    with pytest.raises(MCPToolError, match="no such file"):
+        _call(server, "read_file", {"path": "nope.py"})
+
+    event = _read_trace_lines(tracer)[0]
+    assert event["name"] == "read_file"
+    assert "no such file" in event["error"]
+    assert event["output"] is None
+
+
+def test_without_tracer_tools_still_work(sandbox: Path) -> None:
+    server = build_server(sandbox)
+
+    result = _call(server, "read_file", {"path": "greeter.py"})
+
+    assert result.is_error is False

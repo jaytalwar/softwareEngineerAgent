@@ -26,6 +26,7 @@ from swe_agent.tools import run_shell as _run_shell
 from swe_agent.tools import run_tests as _run_tests
 from swe_agent.tools import search_code as _search_code
 from swe_agent.tools import write_file as _write_file
+from swe_agent.trace import Tracer
 
 _T = TypeVar("_T")
 
@@ -45,7 +46,28 @@ def _translate_errors(func: Callable[..., _T]) -> Callable[..., _T]:
     return wrapper
 
 
-def build_server(repo_root: Path) -> MCPServer:
+def _trace(tracer: Tracer | None) -> Callable[[Callable[..., _T]], Callable[..., _T]]:
+    """Record one `"tool"` trace event per call (input args, output/error,
+    latency) under the tool's own function name. A no-op when `tracer` is
+    None, so tracing stays fully opt-in."""
+
+    def decorator(func: Callable[..., _T]) -> Callable[..., _T]:
+        if tracer is None:
+            return func
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> _T:
+            with tracer.span(kind="tool", name=func.__name__, input=kwargs) as span:
+                result = func(*args, **kwargs)
+                span.output = result
+                return result
+
+        return wrapper
+
+    return decorator
+
+
+def build_server(repo_root: Path, *, tracer: Tracer | None = None) -> MCPServer:
     server = MCPServer(
         "swe-agent-tools",
         instructions="Filesystem, shell, git, test, and lint tools sandboxed to one repo root.",
@@ -53,12 +75,14 @@ def build_server(repo_root: Path) -> MCPServer:
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def read_file(path: str) -> str:
         """Read a file's full contents."""
         return _read_file(repo_root, path)
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def write_file(path: str, content: str) -> dict[str, str]:
         """Create or overwrite a file with the given content."""
         _write_file(repo_root, path, content)
@@ -66,6 +90,7 @@ def build_server(repo_root: Path) -> MCPServer:
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def edit_file(path: str, old_str: str, new_str: str) -> dict[str, str]:
         """Replace an exact, unique substring in a file with new text."""
         _edit_file(repo_root, path, old_str, new_str)
@@ -73,18 +98,21 @@ def build_server(repo_root: Path) -> MCPServer:
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def list_dir(path: str = ".") -> list[str]:
         """List entries directly under a directory."""
         return _list_dir(repo_root, path)
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def search_code(pattern: str, path: str = ".") -> list[dict[str, Any]]:
         """Regex search across files under a path."""
         return _search_code(repo_root, pattern, path)
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def run_shell(command: list[str], cwd: str = ".", timeout: float = 30.0) -> dict[str, Any]:
         """Execute a shell command (argv list, never a shell string) and
         capture its stdout, stderr, and exit code."""
@@ -92,18 +120,21 @@ def build_server(repo_root: Path) -> MCPServer:
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def run_tests(path: str = ".") -> dict[str, Any]:
         """Run pytest under a path and return structured pass/fail results."""
         return _run_tests(repo_root, path)
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def git_diff(path: str | None = None) -> str:
         """Return `git diff` output, optionally scoped to a path."""
         return _git_diff(repo_root, path)
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def apply_patch(diff: str) -> dict[str, str]:
         """Apply a unified diff to the repo."""
         _apply_patch(repo_root, diff)
@@ -111,6 +142,7 @@ def build_server(repo_root: Path) -> MCPServer:
 
     @server.tool()
     @_translate_errors
+    @_trace(tracer)
     def get_lint_diagnostics(path: str = ".") -> list[dict[str, Any]]:
         """Run ruff and return structured lint diagnostics."""
         return _get_lint_diagnostics(repo_root, path)
@@ -125,9 +157,15 @@ def main() -> None:
         default=os.environ.get("SWE_AGENT_REPO_ROOT", "."),
         help="Directory the tools are sandboxed to (default: $SWE_AGENT_REPO_ROOT or cwd).",
     )
+    parser.add_argument(
+        "--trace-task-id",
+        default=None,
+        help="If set, trace every tool call to traces/<TRACE_TASK_ID>.jsonl.",
+    )
     args = parser.parse_args()
 
-    server = build_server(Path(args.repo_root))
+    tracer = Tracer(args.trace_task_id) if args.trace_task_id else None
+    server = build_server(Path(args.repo_root), tracer=tracer)
     server.run()
 
 
