@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Multi-agent AI software engineer: orchestration core and tool layer"
 requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=1.5.0",
     "mcp>=2.2.0",
     "pydantic>=2.13.5",
 ]
@@ -38,6 +39,6 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-mypy_path = "src"
+mypy_path = "src:tests"
 explicit_package_bases = true
 files = ["src", "tests"]
