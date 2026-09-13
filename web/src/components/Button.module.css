@@ -4,21 +4,29 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 40px;
-  padding: 0 var(--space-4);
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
+  font-family: var(--font-sans);
   font-weight: 600;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
   white-space: nowrap;
   transition:
-    background-color var(--duration-fast) var(--ease-snap),
-    border-color var(--duration-fast) var(--ease-snap),
-    color var(--duration-fast) var(--ease-snap),
-    transform var(--duration-fast) var(--ease-snap);
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.md {
+  min-height: 38px;
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.lg {
+  min-height: 46px;
+  padding: 0 var(--space-5);
+  font-size: var(--text-base);
+  border-radius: var(--radius-md);
 }
 
 @media (pointer: coarse) {
@@ -28,39 +36,39 @@
 }
 
 .button:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .button:disabled {
   cursor: not-allowed;
-  opacity: 0.4;
+  opacity: 0.45;
 }
 
 .primary {
   background: var(--accent);
-  color: var(--accent-ink);
+  color: var(--accent-on);
 }
 .primary:hover:not(:disabled) {
   background: var(--accent-strong);
 }
 
 .secondary {
-  background: transparent;
-  border-color: var(--line-strong);
-  color: var(--text-0);
+  background: var(--bg-surface);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 .secondary:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent-strong);
+  border-color: var(--border-strong);
+  background: var(--bg-surface-2);
 }
 
 .ghost {
   background: transparent;
-  color: var(--text-1);
+  color: var(--text-secondary);
 }
 .ghost:hover:not(:disabled) {
-  color: var(--text-0);
-  background: var(--bg-2);
+  color: var(--text-primary);
+  background: var(--bg-surface-2);
 }
 
 .danger {
@@ -88,11 +96,5 @@
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 1400ms;
   }
 }

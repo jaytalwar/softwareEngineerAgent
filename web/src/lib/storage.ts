@@ -1,6 +1,6 @@
 import type { Task } from "./types";
 
-const KEY = "orbit.tasks.v1";
+const KEY = "swe-agent.tasks.v1";
 
 export function loadCachedTasks(): Task[] {
   try {

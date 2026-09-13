@@ -1,47 +1,58 @@
 :root {
-  /* --- Color: dark, mission-control. One accent, semantic states, no decoration. --- */
-  --bg-0: #07090c;
-  --bg-1: #0d1117;
-  --bg-2: #131a22;
-  --bg-3: #1a222c;
+  color-scheme: light dark;
 
-  --line: #212a34;
-  --line-strong: #303c49;
+  /* --- Color: light (default) --- */
+  --bg-canvas: #ffffff;
+  --bg-surface: #fafafa;
+  --bg-surface-2: #f2f2f3;
+  --bg-overlay: #ffffff;
+  --border: #e7e7e8;
+  --border-strong: #d6d6d8;
+  --text-primary: #17171a;
+  --text-secondary: #5c5c62;
+  --text-tertiary: #8f8f96;
 
-  --text-0: #f2f5f8;
-  --text-1: #9fadbb;
-  --text-2: #64707d;
+  --accent: #4f46e5;
+  --accent-strong: #4338ca;
+  --accent-on: #ffffff;
+  --accent-dim: rgba(79, 70, 229, 0.08);
+  --accent-border: rgba(79, 70, 229, 0.3);
 
-  --accent: #4da3ff;
-  --accent-strong: #7cc4ff;
-  --accent-dim: rgba(77, 163, 255, 0.14);
-  --accent-ink: #041322;
+  --success: #12805c;
+  --success-dim: rgba(18, 128, 92, 0.09);
+  --warning: #92600a;
+  --warning-dim: rgba(146, 96, 10, 0.09);
+  --danger: #b3261e;
+  --danger-dim: rgba(179, 38, 30, 0.07);
 
-  --success: #35d399;
-  --success-dim: rgba(53, 211, 153, 0.14);
-  --warning: #f5b942;
-  --warning-dim: rgba(245, 185, 66, 0.14);
-  --danger: #ff5c5c;
-  --danger-dim: rgba(255, 92, 92, 0.14);
+  --focus-ring: #4f46e5;
+  --shadow-sm: 0 1px 2px rgba(20, 20, 24, 0.05);
+  --shadow-md: 0 8px 24px -8px rgba(20, 20, 24, 0.14);
+  --scrim: rgba(10, 10, 12, 0.4);
 
-  --focus-ring: #4da3ff;
+  --syntax-keyword: #9333ea;
+  --syntax-string: #15803d;
+  --syntax-comment: #8f8f96;
+  --syntax-number: #b45309;
+  --syntax-func: #1d4ed8;
 
   /* --- Type --- */
-  --font-display: "Chakra Petch", "Arial Narrow", sans-serif;
-  --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  --font-sans:
+    "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
-  --text-xs: 0.6875rem;
+  --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.9375rem;
   --text-md: 1.0625rem;
-  --text-lg: 1.3125rem;
+  --text-lg: 1.25rem;
   --text-xl: 1.75rem;
-  --text-2xl: clamp(1.75rem, 1.4rem + 1.5vw, 2.5rem);
-  --text-display: clamp(2.25rem, 1.6rem + 2.5vw, 3.5rem);
+  --text-2xl: clamp(2rem, 1.55rem + 1.8vw, 2.75rem);
+  --text-display: clamp(2.75rem, 1.9rem + 3.4vw, 4.5rem);
 
-  --tracking-wide: 0.08em;
-  --tracking-wider: 0.14em;
+  --tracking-tight: -0.01em;
+  --tracking-wide: 0.02em;
+  --tracking-wider: 0.08em;
 
   /* --- Space --- */
   --space-1: 0.25rem;
@@ -51,20 +62,97 @@
   --space-5: 1.5rem;
   --space-6: 2rem;
   --space-7: 3rem;
-  --space-8: 4rem;
+  --space-8: 4.5rem;
+  --space-9: 6.5rem;
 
-  /* --- Shape: mostly sharp. This is a console, not a brochure. --- */
-  --radius-sm: 3px;
-  --radius-md: 5px;
+  /* --- Shape --- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
 
   /* --- Motion --- */
-  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
-  --duration-fast: 110ms;
-  --duration-base: 190ms;
-  --duration-slow: 340ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 420ms;
 
-  --sidebar-w: 248px;
-  --header-h: 56px;
+  /* --- Layout --- */
+  --sidebar-w: 264px;
+  --sidebar-w-collapsed: 64px;
+  --inspector-w: 300px;
+  --topbar-h: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-canvas: #0a0a0b;
+    --bg-surface: #131316;
+    --bg-surface-2: #1b1b1f;
+    --bg-overlay: #18181b;
+    --border: #262629;
+    --border-strong: #333338;
+    --text-primary: #f2f2f4;
+    --text-secondary: #a4a4ab;
+    --text-tertiary: #6c6c73;
+
+    --accent: #6366f1;
+    --accent-strong: #818cf8;
+    --accent-on: #0a0a0b;
+    --accent-dim: rgba(99, 102, 241, 0.16);
+    --accent-border: rgba(99, 102, 241, 0.4);
+
+    --success: #34d399;
+    --success-dim: rgba(52, 211, 153, 0.13);
+    --warning: #fbbf24;
+    --warning-dim: rgba(251, 191, 36, 0.13);
+    --danger: #f87171;
+    --danger-dim: rgba(248, 113, 113, 0.12);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 12px 32px -8px rgba(0, 0, 0, 0.5);
+    --scrim: rgba(0, 0, 0, 0.55);
+
+    --syntax-keyword: #c084fc;
+    --syntax-string: #4ade80;
+    --syntax-comment: #6c6c73;
+    --syntax-number: #fbbf24;
+    --syntax-func: #60a5fa;
+  }
+}
+
+[data-theme="dark"] {
+  --bg-canvas: #0a0a0b;
+  --bg-surface: #131316;
+  --bg-surface-2: #1b1b1f;
+  --bg-overlay: #18181b;
+  --border: #262629;
+  --border-strong: #333338;
+  --text-primary: #f2f2f4;
+  --text-secondary: #a4a4ab;
+  --text-tertiary: #6c6c73;
+
+  --accent: #6366f1;
+  --accent-strong: #818cf8;
+  --accent-on: #0a0a0b;
+  --accent-dim: rgba(99, 102, 241, 0.16);
+  --accent-border: rgba(99, 102, 241, 0.4);
+
+  --success: #34d399;
+  --success-dim: rgba(52, 211, 153, 0.13);
+  --warning: #fbbf24;
+  --warning-dim: rgba(251, 191, 36, 0.13);
+  --danger: #f87171;
+  --danger-dim: rgba(248, 113, 113, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 12px 32px -8px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --syntax-keyword: #c084fc;
+  --syntax-string: #4ade80;
+  --syntax-comment: #6c6c73;
+  --syntax-number: #fbbf24;
+  --syntax-func: #60a5fa;
 }
 
 @media (prefers-reduced-motion: reduce) {

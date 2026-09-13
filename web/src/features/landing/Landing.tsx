@@ -1,0 +1,56 @@
+import { useRef } from "react";
+import { Button } from "../../components/Button";
+import { CommandBar } from "../../app/CommandBar";
+import styles from "./Landing.module.css";
+
+interface LandingProps {
+  onSubmit: (title: string) => void;
+  onRunDemo: () => void;
+  disabled: boolean;
+  disabledReason?: string;
+}
+
+const STEPS = ["Understand", "Plan", "Code", "Test", "Verify"];
+
+export function Landing({ onSubmit, onRunDemo, disabled, disabledReason }: LandingProps) {
+  const commandBarRef = useRef<HTMLDivElement>(null);
+
+  function focusCommandBar() {
+    const textarea = commandBarRef.current?.querySelector("textarea");
+    textarea?.focus();
+  }
+
+  return (
+    <div className={styles.wrap}>
+      <div className={styles.hero}>
+        <h1 className={styles.title}>Your AI Software Engineer.</h1>
+        <p className={styles.subtitle}>Understand. Modify. Test. Ship.</p>
+        <p className={styles.supporting}>
+          An autonomous software engineering agent that can inspect repositories, modify code,
+          run tests, and validate its own work.
+        </p>
+        <div className={styles.ctaRow}>
+          <Button variant="primary" size="lg" onClick={focusCommandBar} disabled={disabled}>
+            Start a task
+          </Button>
+          <Button variant="secondary" size="lg" onClick={onRunDemo} disabled={disabled}>
+            Run interactive demo
+          </Button>
+        </div>
+
+        <div className={styles.workflow} aria-hidden="true">
+          {STEPS.map((step, i) => (
+            <div key={step} className={styles.workflowStep}>
+              <span className={styles.workflowLabel}>{step}</span>
+              {i < STEPS.length - 1 && <span className={styles.workflowArrow}>→</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div ref={commandBarRef} className={styles.commandBarWrap}>
+        <CommandBar onSubmit={onSubmit} disabled={disabled} disabledReason={disabledReason} />
+      </div>
+    </div>
+  );
+}

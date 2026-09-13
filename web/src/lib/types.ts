@@ -1,24 +1,77 @@
+export type ToolName =
+  | "read_file"
+  | "write_file"
+  | "edit_file"
+  | "list_dir"
+  | "search_code"
+  | "run_shell"
+  | "run_tests"
+  | "git_diff"
+  | "apply_patch"
+  | "get_lint_diagnostics";
+
 export type AgentRole = "planner" | "coder" | "reviewer";
 
-export type TaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
+export type EventStatus = "running" | "done" | "error";
 
-export interface ToolCallEvent {
-  id: string;
-  tool: string;
-  args: Record<string, unknown>;
-  result?: string;
-  success: boolean;
+export interface DiffLine {
+  type: "context" | "add" | "del";
+  content: string;
+  oldLine?: number;
+  newLine?: number;
 }
 
-export interface TimelineStep {
+export interface FileDiff {
+  path: string;
+  language: string;
+  additions: number;
+  deletions: number;
+  lines: DiffLine[];
+}
+
+export interface TestCase {
+  name: string;
+  status: "passed" | "failed";
+  durationMs: number;
+  error?: string;
+  file?: string;
+  line?: number;
+}
+
+export interface TestSummary {
+  passed: number;
+  failed: number;
+  warnings: number;
+  totalTimeMs: number;
+  tests: TestCase[];
+}
+
+export interface CodeMatch {
+  file: string;
+  line: number;
+  snippet: string;
+}
+
+export interface TimelineEvent {
   id: string;
-  role: AgentRole;
-  status: "running" | "done";
-  summary?: string;
-  toolCalls: ToolCallEvent[];
+  agentRole: AgentRole;
+  tool?: ToolName;
+  title: string;
+  message: string;
+  detail?: string;
+  status: EventStatus;
   startedAt: number;
   finishedAt?: number;
+  durationMs?: number;
+  args?: Record<string, unknown>;
+  diff?: FileDiff;
+  tests?: TestSummary;
+  matches?: CodeMatch[];
+  fileContent?: { path: string; language: string; content: string };
+  final?: boolean;
 }
+
+export type TaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface Task {
   id: string;
@@ -30,6 +83,12 @@ export interface Task {
   totalTokens: number;
   totalCostUsd: number;
   budgetMaxIterations: number;
-  timeline: TimelineStep[];
+  timeline: TimelineEvent[];
+  repoName: string;
+  filesModified: string[];
   failureReason?: string;
 }
+
+export type RepoNode =
+  | { type: "dir"; name: string; path: string; children: RepoNode[] }
+  | { type: "file"; name: string; path: string };

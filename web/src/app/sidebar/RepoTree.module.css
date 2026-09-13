@@ -1,0 +1,35 @@
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.row:hover {
+  background: var(--bg-surface-2);
+}
+
+.icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.active .icon {
+  color: var(--accent);
+  opacity: 1;
+}

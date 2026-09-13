@@ -22,3 +22,12 @@ export function formatDuration(ms: number): string {
   if (totalSec < 60) return `${totalSec}s`;
   return `${Math.floor(totalSec / 60)}m ${totalSec % 60}s`;
 }
+
+export function formatEventDuration(ms: number): string {
+  if (ms < 1000) return `${Math.max(ms, 1)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+export function formatClockTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}

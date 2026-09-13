@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { runMockAgentTask, type RunHandle } from "../lib/mockApi";
+import { buildDemoScenario, buildGenericScenario } from "../lib/demoScript";
+import { runScenario, type RunHandle } from "../lib/simulationEngine";
 import { loadCachedTasks, saveCachedTasks } from "../lib/storage";
 import type { Task } from "../lib/types";
 
@@ -13,11 +14,9 @@ export function useTasks() {
   const handles = useRef(new Map<string, RunHandle>());
 
   useEffect(() => {
-    // Cached tasks (if any) are already on screen — this only ever confirms
-    // that state, it never blanks it, so a brief simulated round-trip is
-    // safe here.
-    const initialCount = tasks.length;
-    const t = window.setTimeout(() => setIsRefreshing(false), initialCount ? 380 : 220);
+    // Cached tasks (if any) are already on screen — this only confirms that
+    // state, it never blanks it.
+    const t = window.setTimeout(() => setIsRefreshing(false), tasks.length ? 380 : 220);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -27,9 +26,9 @@ export function useTasks() {
   }, [tasks]);
 
   useEffect(() => {
-    const handleMap = handles.current;
+    const map = handles.current;
     return () => {
-      handleMap.forEach((h) => h.cancel());
+      map.forEach((h) => h.cancel());
     };
   }, []);
 
@@ -37,8 +36,8 @@ export function useTasks() {
     setTasks((prev) => prev.map((t) => (t.id === taskId ? updater(t) : t)));
   }, []);
 
-  const createTask = useCallback(
-    (title: string): string => {
+  const startTask = useCallback(
+    (title: string, isDemo: boolean): string => {
       const now = Date.now();
       const task: Task = {
         id: makeId(),
@@ -49,16 +48,23 @@ export function useTasks() {
         iteration: 0,
         totalTokens: 0,
         totalCostUsd: 0,
-        budgetMaxIterations: 12,
+        budgetMaxIterations: 20,
         timeline: [],
+        repoName: "acme-store",
+        filesModified: [],
       };
       setTasks((prev) => [task, ...prev]);
-      const handle = runMockAgentTask(task, (updater) => updateTask(task.id, updater));
+      const steps = isDemo ? buildDemoScenario() : buildGenericScenario(title);
+      const handle = runScenario(task.id, steps, (updater) => updateTask(task.id, updater));
       handles.current.set(task.id, handle);
       return task.id;
     },
     [updateTask],
   );
 
-  return { tasks, isRefreshing, createTask };
+  const skipTask = useCallback((taskId: string) => {
+    handles.current.get(taskId)?.skip();
+  }, []);
+
+  return { tasks, isRefreshing, startTask, skipTask };
 }

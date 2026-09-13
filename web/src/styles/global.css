@@ -7,19 +7,22 @@
 }
 
 html {
-  color-scheme: dark;
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg-0);
-  color: var(--text-0);
-  font-family: var(--font-body);
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
   font-size: var(--text-base);
   line-height: 1.5;
+  letter-spacing: var(--tracking-tight);
   -webkit-font-smoothing: antialiased;
+  transition:
+    background-color var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
 }
 
 #root {
@@ -28,17 +31,24 @@ body {
 
 h1,
 h2,
-h3 {
+h3,
+h4 {
   margin: 0;
-  font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
   line-height: 1.15;
 }
 
 p {
   margin: 0;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
 }
 
 button,
@@ -50,6 +60,8 @@ textarea {
 
 button {
   cursor: pointer;
+  background: none;
+  border: none;
 }
 
 a {
@@ -58,7 +70,7 @@ a {
 
 ::selection {
   background: var(--accent-dim);
-  color: var(--text-0);
+  color: var(--text-primary);
 }
 
 :focus {
@@ -68,12 +80,12 @@ a {
 :focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
+  border-radius: 2px;
 }
 
-/* Custom scrollbar — thin, technical, not the default chrome */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -82,7 +94,7 @@ a {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
+  background: var(--border-strong);
   border-radius: 999px;
 }
 

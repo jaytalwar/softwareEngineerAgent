@@ -1,11 +1,11 @@
 {
-  "name": "Orbit — AI Software Engineer",
-  "short_name": "Orbit",
-  "description": "Multi-agent AI software engineer: Planner, Coder, and Reviewer working a task to completion.",
+  "name": "SWE-Agent — Your AI Software Engineer",
+  "short_name": "SWE-Agent",
+  "description": "An autonomous software engineering agent that inspects repositories, modifies code, runs tests, and validates its own work.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#07090c",
-  "theme_color": "#07090c",
+  "background_color": "#0a0a0b",
+  "theme_color": "#0a0a0b",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

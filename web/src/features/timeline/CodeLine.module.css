@@ -1,0 +1,16 @@
+.keyword {
+  color: var(--syntax-keyword);
+}
+.string {
+  color: var(--syntax-string);
+}
+.comment {
+  color: var(--syntax-comment);
+  font-style: italic;
+}
+.number {
+  color: var(--syntax-number);
+}
+.func {
+  color: var(--syntax-func);
+}

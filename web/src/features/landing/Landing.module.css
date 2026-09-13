@@ -1,0 +1,108 @@
+.wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-7) var(--space-5);
+  gap: var(--space-5);
+  overflow-y: auto;
+  animation: fadeUp 700ms var(--ease-out);
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.title {
+  font-size: var(--text-display);
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
+  max-width: 18ch;
+}
+
+.subtitle {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.supporting {
+  max-width: 46ch;
+  font-size: var(--text-md);
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
+
+.ctaRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.workflow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.workflowStep {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.workflowLabel {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.workflowArrow {
+  color: var(--border-strong);
+}
+
+.commandBarWrap {
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .hero {
+    padding: var(--space-6) var(--space-4);
+    gap: var(--space-4);
+  }
+  .workflow {
+    gap: var(--space-2);
+  }
+  .workflowLabel {
+    font-size: 0.65rem;
+    padding: var(--space-1) var(--space-2);
+  }
+}
