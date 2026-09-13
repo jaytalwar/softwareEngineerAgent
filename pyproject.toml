@@ -29,6 +29,7 @@ addopts = "-ra"
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+extend-exclude = ["sandbox_fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
