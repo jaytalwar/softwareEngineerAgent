@@ -67,5 +67,7 @@ class TaskState(BaseModel):
     pending_tool_calls: list[ToolCall] = Field(default_factory=list)
     tool_results: list[ToolResult] = Field(default_factory=list)
     iteration: int = 0
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

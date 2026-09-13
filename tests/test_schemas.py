@@ -55,6 +55,8 @@ def test_task_state_defaults() -> None:
 
     assert state.status == "pending"
     assert state.iteration == 0
+    assert state.total_tokens == 0
+    assert state.total_cost_usd == 0.0
     assert state.messages == []
     assert state.pending_tool_calls == []
     assert state.tool_results == []

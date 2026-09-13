@@ -21,6 +21,41 @@ class GraphExecutionError(RuntimeError):
     """Raised when the graph is misconfigured or execution cannot proceed."""
 
 
+class BudgetExceededError(GraphExecutionError):
+    """Raised when a task exceeds its configured iteration or cost `Budget`.
+
+    Unlike `max_steps` (a developer safety net against a broken graph), this
+    is a caller-supplied policy: it fires on the task's own `iteration`,
+    `total_tokens`, and `total_cost_usd` counters, which node functions are
+    responsible for updating.
+    """
+
+    def __init__(self, message: str, *, state: TaskState) -> None:
+        super().__init__(message)
+        self.state = state
+
+
+@dataclass(frozen=True)
+class Budget:
+    """A task-level guardrail: caps iterations and, optionally, tokens/cost."""
+
+    max_iterations: int
+    max_tokens: int | None = None
+    max_cost_usd: float | None = None
+
+    def violation(self, state: TaskState) -> str | None:
+        """Return a description of the first exceeded limit, or None."""
+        if state.iteration > self.max_iterations:
+            return f"iteration {state.iteration} exceeds max_iterations={self.max_iterations}"
+        if self.max_tokens is not None and state.total_tokens > self.max_tokens:
+            return f"total_tokens {state.total_tokens} exceeds max_tokens={self.max_tokens}"
+        if self.max_cost_usd is not None and state.total_cost_usd > self.max_cost_usd:
+            return (
+                f"total_cost_usd {state.total_cost_usd} exceeds max_cost_usd={self.max_cost_usd}"
+            )
+        return None
+
+
 @dataclass(frozen=True)
 class _ConditionalEdge:
     condition: Condition
@@ -62,12 +97,16 @@ class GraphEngine:
         self._require_node(name)
         self._entry_point = name
 
-    def run(self, state: TaskState, *, max_steps: int = 10_000) -> TaskState:
+    def run(
+        self, state: TaskState, *, max_steps: int = 10_000, budget: Budget | None = None
+    ) -> TaskState:
         """Run the graph to completion (until a node routes to `END`).
 
         `max_steps` is a hard safety valve against a misconfigured graph
-        cycling forever — it is independent of any task-level iteration
-        budget the caller may enforce inside its own node/edge logic.
+        cycling forever. `budget`, if given, is checked after every node
+        runs and raises `BudgetExceededError` the moment the task's own
+        iteration/token/cost counters cross their configured limit — this
+        is what actually stops a runaway task, independent of `max_steps`.
         """
         if self._entry_point is None:
             raise GraphExecutionError("no entry point set; call set_entry_point() first")
@@ -81,6 +120,11 @@ class GraphEngine:
                     "(likely an unbounded cycle)"
                 )
             state = self._nodes[current](state)
+            if budget is not None:
+                violation = budget.violation(state)
+                if violation is not None:
+                    message = f"task {state.task_id} stopped: {violation}"
+                    raise BudgetExceededError(message, state=state)
             current = self._next_node(current, state)
             steps += 1
         return state

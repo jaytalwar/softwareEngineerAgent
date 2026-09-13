@@ -1,6 +1,12 @@
 import pytest
 
-from swe_agent.orchestrator.engine import END, GraphEngine, GraphExecutionError
+from swe_agent.orchestrator.engine import (
+    END,
+    Budget,
+    BudgetExceededError,
+    GraphEngine,
+    GraphExecutionError,
+)
 from swe_agent.schemas import AgentMessage, TaskState
 
 
@@ -129,3 +135,74 @@ def test_duplicate_outgoing_edge_raises() -> None:
 
     with pytest.raises(ValueError, match="already has an outgoing edge"):
         engine.add_edge("a", END)
+
+
+def _build_runaway_engine(spin: object) -> GraphEngine:
+    engine = GraphEngine()
+    engine.add_node("spin", spin)  # type: ignore[arg-type]
+    engine.set_entry_point("spin")
+    engine.add_edge("spin", "spin")
+    return engine
+
+
+def test_budget_stops_runaway_task_on_iteration_cap() -> None:
+    def spin(state: TaskState) -> TaskState:
+        state.iteration += 1
+        return state
+
+    engine = _build_runaway_engine(spin)
+
+    with pytest.raises(BudgetExceededError, match="max_iterations=5") as exc_info:
+        engine.run(TaskState(), budget=Budget(max_iterations=5))
+
+    assert exc_info.value.state.iteration == 6
+
+
+def test_budget_stops_runaway_task_on_token_cap() -> None:
+    def spin(state: TaskState) -> TaskState:
+        state.iteration += 1
+        state.total_tokens += 30
+        return state
+
+    engine = _build_runaway_engine(spin)
+
+    with pytest.raises(BudgetExceededError, match="max_tokens=100") as exc_info:
+        engine.run(TaskState(), budget=Budget(max_iterations=1000, max_tokens=100))
+
+    assert exc_info.value.state.total_tokens == 120
+
+
+def test_budget_stops_runaway_task_on_cost_cap() -> None:
+    def spin(state: TaskState) -> TaskState:
+        state.iteration += 1
+        state.total_cost_usd += 0.5
+        return state
+
+    engine = _build_runaway_engine(spin)
+
+    with pytest.raises(BudgetExceededError, match="max_cost_usd=1.0") as exc_info:
+        engine.run(TaskState(), budget=Budget(max_iterations=1000, max_cost_usd=1.0))
+
+    assert exc_info.value.state.total_cost_usd == pytest.approx(1.5)
+
+
+def test_budget_does_not_interfere_when_task_finishes_within_limits() -> None:
+    def attempt(state: TaskState) -> TaskState:
+        state.iteration += 1
+        state.total_tokens += 10
+        if state.iteration >= 3:
+            state.status = "succeeded"
+        return state
+
+    def route(state: TaskState) -> str:
+        return "done" if state.status == "succeeded" else "retry"
+
+    engine = GraphEngine()
+    engine.add_node("attempt", attempt)
+    engine.set_entry_point("attempt")
+    engine.add_conditional_edges("attempt", route, {"retry": "attempt", "done": END})
+
+    result = engine.run(TaskState(), budget=Budget(max_iterations=10, max_tokens=1000))
+
+    assert result.status == "succeeded"
+    assert result.iteration == 3
