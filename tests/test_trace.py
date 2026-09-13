@@ -103,3 +103,12 @@ def test_span_passes_through_tokens(tmp_path: Path) -> None:
         span.output = "done"
 
     assert _read_lines(tracer.path)[0]["tokens"] == 123
+
+
+def test_span_tokens_set_inside_block_overrides_upfront_value(tmp_path: Path) -> None:
+    tracer = Tracer("task-a", trace_dir=tmp_path)
+
+    with tracer.span(kind="agent", name="planner", input="go", tokens=123) as span:
+        span.tokens = 456
+
+    assert _read_lines(tracer.path)[0]["tokens"] == 456

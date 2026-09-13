@@ -1,3 +1,7 @@
+import json
+from pathlib import Path
+from typing import Any
+
 import pytest
 
 from swe_agent.orchestrator.engine import (
@@ -8,6 +12,11 @@ from swe_agent.orchestrator.engine import (
     GraphExecutionError,
 )
 from swe_agent.schemas import AgentMessage, TaskState
+from swe_agent.trace import Tracer
+
+
+def _read_trace_lines(tracer: Tracer) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in tracer.path.read_text().splitlines()]
 
 
 def _append(role: str, content: str) -> object:
@@ -206,3 +215,59 @@ def test_budget_does_not_interfere_when_task_finishes_within_limits() -> None:
 
     assert result.status == "succeeded"
     assert result.iteration == 3
+
+
+def test_tracer_records_one_event_per_node(tmp_path: Path) -> None:
+    engine = GraphEngine()
+    engine.add_node("a", _append("assistant", "a"))  # type: ignore[arg-type]
+    engine.add_node("b", _append("assistant", "b"))  # type: ignore[arg-type]
+    engine.set_entry_point("a")
+    engine.add_edge("a", "b")
+    engine.add_edge("b", END)
+    tracer = Tracer("trace-test", trace_dir=tmp_path)
+
+    engine.run(TaskState(), tracer=tracer)
+
+    events = _read_trace_lines(tracer)
+    assert [e["name"] for e in events] == ["a", "b"]
+    assert all(e["kind"] == "agent" for e in events)
+    assert all(e["latency_ms"] >= 0.0 for e in events)
+
+
+def test_tracer_records_state_snapshot_and_token_delta(tmp_path: Path) -> None:
+    def bump(state: TaskState) -> TaskState:
+        state.iteration += 1
+        state.total_tokens += 50
+        return state
+
+    engine = GraphEngine()
+    engine.add_node("bump", bump)
+    engine.set_entry_point("bump")
+    engine.add_edge("bump", END)
+    tracer = Tracer("trace-test", trace_dir=tmp_path)
+
+    engine.run(TaskState(), tracer=tracer)
+
+    event = _read_trace_lines(tracer)[0]
+    assert event["input"] == {"iteration": 0, "status": "pending"}
+    assert event["output"] == {"iteration": 1, "status": "pending"}
+    assert event["tokens"] == 50
+
+
+def test_tracer_records_error_when_node_raises_and_reraises(tmp_path: Path) -> None:
+    def boom(state: TaskState) -> TaskState:
+        raise ValueError("kaboom")
+
+    engine = GraphEngine()
+    engine.add_node("boom", boom)
+    engine.set_entry_point("boom")
+    engine.add_edge("boom", END)
+    tracer = Tracer("trace-test", trace_dir=tmp_path)
+
+    with pytest.raises(ValueError, match="kaboom"):
+        engine.run(TaskState(), tracer=tracer)
+
+    event = _read_trace_lines(tracer)[0]
+    assert event["name"] == "boom"
+    assert event["error"] == "kaboom"
+    assert event["output"] is None

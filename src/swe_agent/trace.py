@@ -42,6 +42,7 @@ class Span:
 
     output: Any = None
     error: str | None = None
+    tokens: int | None = None
 
 
 class Tracer:
@@ -89,9 +90,13 @@ class Tracer:
         """Time a block of code and record it as one trace event on exit.
 
         Set `span.output` inside the block; on an exception, `span.error` is
-        filled in automatically and the exception still propagates.
+        filled in automatically and the exception still propagates. `tokens`
+        can be passed up front (e.g. counted from a prompt before the call)
+        or set as `span.tokens` inside the block, for when it's only known
+        after the call completes (e.g. a token-count delta) — the latter
+        wins if both are used.
         """
-        span = Span()
+        span = Span(tokens=tokens)
         start = time.perf_counter()
         try:
             yield span
@@ -106,6 +111,6 @@ class Tracer:
                 input=input,
                 output=span.output,
                 error=span.error,
-                tokens=tokens,
+                tokens=span.tokens,
                 latency_ms=latency_ms,
             )

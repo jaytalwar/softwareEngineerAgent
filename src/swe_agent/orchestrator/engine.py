@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from swe_agent.schemas import TaskState
+from swe_agent.trace import Tracer
 
 END = "__end__"
 
@@ -98,7 +99,12 @@ class GraphEngine:
         self._entry_point = name
 
     def run(
-        self, state: TaskState, *, max_steps: int = 10_000, budget: Budget | None = None
+        self,
+        state: TaskState,
+        *,
+        max_steps: int = 10_000,
+        budget: Budget | None = None,
+        tracer: Tracer | None = None,
     ) -> TaskState:
         """Run the graph to completion (until a node routes to `END`).
 
@@ -107,6 +113,11 @@ class GraphEngine:
         runs and raises `BudgetExceededError` the moment the task's own
         iteration/token/cost counters cross their configured limit — this
         is what actually stops a runaway task, independent of `max_steps`.
+        `tracer`, if given, records one `"agent"` trace event per node run
+        — a compact `{iteration, status}` snapshot before/after, and the
+        node's token cost as the `total_tokens` delta it produced. A node
+        that raises still gets its trace line written (with the error
+        captured) before the exception propagates.
         """
         if self._entry_point is None:
             raise GraphExecutionError("no entry point set; call set_entry_point() first")
@@ -119,7 +130,7 @@ class GraphEngine:
                     f"exceeded max_steps={max_steps} without reaching {END!r} "
                     "(likely an unbounded cycle)"
                 )
-            state = self._nodes[current](state)
+            state = self._run_node(current, state, tracer)
             if budget is not None:
                 violation = budget.violation(state)
                 if violation is not None:
@@ -128,6 +139,21 @@ class GraphEngine:
             current = self._next_node(current, state)
             steps += 1
         return state
+
+    def _run_node(self, name: str, state: TaskState, tracer: Tracer | None) -> TaskState:
+        if tracer is None:
+            return self._nodes[name](state)
+
+        tokens_before = state.total_tokens
+        with tracer.span(
+            kind="agent",
+            name=name,
+            input={"iteration": state.iteration, "status": state.status},
+        ) as span:
+            new_state = self._nodes[name](state)
+            span.output = {"iteration": new_state.iteration, "status": new_state.status}
+            span.tokens = new_state.total_tokens - tokens_before
+        return new_state
 
     def _next_node(self, current: str, state: TaskState) -> str:
         if current in self._edges:
