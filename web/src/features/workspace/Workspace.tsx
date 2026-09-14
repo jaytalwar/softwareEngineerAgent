@@ -10,9 +10,16 @@ interface WorkspaceProps {
   onSkip: () => void;
 }
 
+const SOURCE_LABEL: Record<Task["source"], string> = {
+  real: "Live agent",
+  demo: "Scripted demo",
+  "generic-mock": "Simulated",
+};
+
 export function Workspace({ task, onSkip }: WorkspaceProps) {
   const activity = deriveActivity(task);
   const isActive = task.status === "running" || task.status === "pending";
+  const canSkip = isActive && task.source !== "real";
 
   return (
     <div className={styles.wrap}>
@@ -21,11 +28,15 @@ export function Workspace({ task, onSkip }: WorkspaceProps) {
           <h1 className={styles.title}>{task.title}</h1>
           <p className={styles.subtitle}>
             {task.repoName} <span className={styles.branch}>/ main</span>
+            <span className={[styles.sourceTag, styles[`source-${task.source}`]].join(" ")}>
+              {SOURCE_LABEL[task.source]}
+              {task.llmMode === "scripted-fallback" && " · no API key"}
+            </span>
           </p>
         </div>
         <div className={styles.headerRight}>
           <StatusPill state={activity.state} label={activity.label} className={styles.pill} />
-          {isActive && (
+          {canSkip && (
             <Button variant="ghost" size="md" onClick={onSkip}>
               Skip animation
             </Button>

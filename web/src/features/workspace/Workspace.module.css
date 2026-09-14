@@ -40,6 +40,30 @@
   color: var(--text-tertiary);
 }
 
+.sourceTag {
+  margin-left: var(--space-3);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-size: 0.65rem;
+}
+
+.source-real {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.source-demo {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.source-generic-mock {
+  color: var(--text-tertiary);
+}
+
 .headerRight {
   display: flex;
   align-items: center;

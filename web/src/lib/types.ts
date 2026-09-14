@@ -73,6 +73,10 @@ export interface TimelineEvent {
 
 export type TaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
+/** Where a task's execution actually came from — shown in the UI so it's
+ * never ambiguous whether you're looking at a real agent run or a mock. */
+export type TaskSource = "demo" | "generic-mock" | "real";
+
 export interface Task {
   id: string;
   title: string;
@@ -87,6 +91,8 @@ export interface Task {
   repoName: string;
   filesModified: string[];
   failureReason?: string;
+  source: TaskSource;
+  llmMode?: string;
 }
 
 export type RepoNode =

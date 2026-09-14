@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildDemoScenario, buildGenericScenario } from "../lib/demoScript";
+import { checkBackendHealth, createRealTask, pollRealTask } from "../lib/realApi";
 import { runScenario, type RunHandle } from "../lib/simulationEngine";
 import { loadCachedTasks, saveCachedTasks } from "../lib/storage";
 import type { Task } from "../lib/types";
@@ -11,6 +12,7 @@ function makeId(): string {
 export function useTasks() {
   const [tasks, setTasks] = useState<Task[]>(() => loadCachedTasks());
   const [isRefreshing, setIsRefreshing] = useState(true);
+  const [backendAvailable, setBackendAvailable] = useState(false);
   const handles = useRef(new Map<string, RunHandle>());
 
   useEffect(() => {
@@ -19,6 +21,10 @@ export function useTasks() {
     const t = window.setTimeout(() => setIsRefreshing(false), tasks.length ? 380 : 220);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    checkBackendHealth().then(({ ok }) => setBackendAvailable(ok));
   }, []);
 
   useEffect(() => {
@@ -39,8 +45,11 @@ export function useTasks() {
   const startTask = useCallback(
     (title: string, isDemo: boolean): string => {
       const now = Date.now();
+      const id = makeId();
+      const useReal = !isDemo && backendAvailable;
+
       const task: Task = {
-        id: makeId(),
+        id,
         title,
         status: "pending",
         createdAt: now,
@@ -50,21 +59,41 @@ export function useTasks() {
         totalCostUsd: 0,
         budgetMaxIterations: 20,
         timeline: [],
-        repoName: "acme-store",
+        repoName: useReal ? "sandbox_fixtures (throwaway copy)" : "acme-store",
         filesModified: [],
+        source: isDemo ? "demo" : useReal ? "real" : "generic-mock",
       };
       setTasks((prev) => [task, ...prev]);
-      const steps = isDemo ? buildDemoScenario() : buildGenericScenario(title);
-      const handle = runScenario(task.id, steps, (updater) => updateTask(task.id, updater));
-      handles.current.set(task.id, handle);
-      return task.id;
+
+      if (useReal) {
+        createRealTask(title)
+          .then(({ taskId: realId, llmMode }) => {
+            updateTask(id, (t) => ({ ...t, llmMode }));
+            const handle = pollRealTask(realId, (updater) => updateTask(id, updater));
+            handles.current.set(id, handle);
+          })
+          .catch(() => {
+            // The health check passed but the create call itself failed
+            // (backend went away mid-request) — fall back rather than
+            // leaving the task stuck at "pending" forever.
+            const steps = buildGenericScenario(title);
+            const handle = runScenario(id, steps, (updater) => updateTask(id, updater));
+            handles.current.set(id, handle);
+          });
+      } else {
+        const steps = isDemo ? buildDemoScenario() : buildGenericScenario(title);
+        const handle = runScenario(id, steps, (updater) => updateTask(id, updater));
+        handles.current.set(id, handle);
+      }
+
+      return id;
     },
-    [updateTask],
+    [backendAvailable, updateTask],
   );
 
   const skipTask = useCallback((taskId: string) => {
     handles.current.get(taskId)?.skip();
   }, []);
 
-  return { tasks, isRefreshing, startTask, skipTask };
+  return { tasks, isRefreshing, backendAvailable, startTask, skipTask };
 }

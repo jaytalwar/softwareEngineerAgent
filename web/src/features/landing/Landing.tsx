@@ -8,11 +8,18 @@ interface LandingProps {
   onRunDemo: () => void;
   disabled: boolean;
   disabledReason?: string;
+  backendAvailable: boolean;
 }
 
 const STEPS = ["Understand", "Plan", "Code", "Test", "Verify"];
 
-export function Landing({ onSubmit, onRunDemo, disabled, disabledReason }: LandingProps) {
+export function Landing({
+  onSubmit,
+  onRunDemo,
+  disabled,
+  disabledReason,
+  backendAvailable,
+}: LandingProps) {
   const commandBarRef = useRef<HTMLDivElement>(null);
 
   function focusCommandBar() {
@@ -49,6 +56,17 @@ export function Landing({ onSubmit, onRunDemo, disabled, disabledReason }: Landi
       </div>
 
       <div ref={commandBarRef} className={styles.commandBarWrap}>
+        <p className={styles.backendStatus}>
+          <span
+            className={[styles.backendDot, backendAvailable ? styles.backendUp : styles.backendDown].join(
+              " ",
+            )}
+            aria-hidden="true"
+          />
+          {backendAvailable
+            ? "Backend connected — a typed task runs the real agent."
+            : "Backend not detected — tasks run in simulation. Run Demo always works."}
+        </p>
         <CommandBar onSubmit={onSubmit} disabled={disabled} disabledReason={disabledReason} />
       </div>
     </div>

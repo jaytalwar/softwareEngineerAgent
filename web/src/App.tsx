@@ -12,7 +12,7 @@ const DEMO_TASK_TITLE = "Fix the authentication bug and make sure all tests pass
 
 export default function App() {
   const { theme, toggle } = useTheme();
-  const { tasks, isRefreshing, startTask, skipTask } = useTasks();
+  const { tasks, isRefreshing, backendAvailable, startTask, skipTask } = useTasks();
   const [route, navigate] = useHashRoute();
   const isOffline = !useOnline();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -67,6 +67,7 @@ export default function App() {
           onRunDemo={() => handleStart(DEMO_TASK_TITLE, true)}
           disabled={isOffline}
           disabledReason={isOffline ? "Reconnect to start a new task." : undefined}
+          backendAvailable={backendAvailable}
         />
       )}
     </AppShell>
