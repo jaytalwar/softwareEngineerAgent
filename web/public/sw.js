@@ -1,4 +1,4 @@
-const CACHE_NAME = "orbit-cache-v1";
+const CACHE_NAME = "swe-agent-cache-v1";
 
 self.addEventListener("install", () => {
   self.skipWaiting();
