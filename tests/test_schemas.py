@@ -50,6 +50,31 @@ def test_tool_result_latency_ms() -> None:
     assert result.latency_ms == pytest.approx(250.0)
 
 
+def test_tool_result_arguments_default_to_empty_dict() -> None:
+    result = ToolResult(
+        call_id="abc",
+        tool_name="run_tests",
+        success=True,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+    )
+
+    assert result.arguments == {}
+
+
+def test_tool_result_records_the_call_arguments() -> None:
+    result = ToolResult(
+        call_id="abc",
+        tool_name="read_file",
+        arguments={"path": "a.py"},
+        success=True,
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+    )
+
+    assert result.arguments == {"path": "a.py"}
+
+
 def test_task_state_defaults() -> None:
     state = TaskState()
 

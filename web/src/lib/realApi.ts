@@ -1,14 +1,15 @@
 /**
  * Client for the real FastAPI bridge (`src/swe_agent/server.py`).
  *
- * Honest limitation: `ToolResult` (the backend's own record of a tool
- * call) doesn't carry the *arguments* a tool was called with — only its
- * outcome — so real tool events here show name/outcome/timing but not
- * the path/pattern/etc. the mocked demo shows. Diffs aren't reconstructed
- * either (the real tools return `{"status": "ok"}` for edits, not a diff
- * structure). See BUILD_LOG's "what remains" for the fix.
+ * `ToolResult` now carries the real call `arguments`, so real tool events
+ * here show genuine diffs, search matches, and file content — not just
+ * outcome text. `edit_file` still only gets a line-number-free diff (its
+ * arguments are `old_str`/`new_str`, not a full file before/after), and
+ * `write_file`/`edit_file` don't return a path in their output, so
+ * `filesModified` is derived from `arguments.path` here.
  */
-import type { AgentRole, Task, TestSummary, TimelineEvent, ToolName } from "./types";
+import { diffFromEditArgs, parseUnifiedDiff } from "./diffParser";
+import type { AgentRole, CodeMatch, Task, TestSummary, TimelineEvent, ToolName } from "./types";
 
 export const API_BASE = "http://localhost:8000";
 
@@ -34,6 +35,7 @@ interface RawAgentMessage {
 interface RawToolResult {
   call_id: string;
   tool_name: string;
+  arguments: Record<string, unknown>;
   success: boolean;
   output: unknown;
   error: string | null;
@@ -69,55 +71,26 @@ function isRunTestsOutput(output: unknown): output is RunTestsOutput {
   );
 }
 
+interface SearchMatch {
+  file: string;
+  line: number;
+  text: string;
+}
+
+function isSearchMatches(output: unknown): output is SearchMatch[] {
+  return (
+    Array.isArray(output) && (output.length === 0 || (output[0] && typeof output[0] === "object" && "file" in output[0] && "text" in output[0]))
+  );
+}
+
 function summarize(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return text.length > 160 ? `${text.slice(0, 160)}…` : text;
 }
 
-function toolResultToEvent(tool: RawToolResult): TimelineEvent {
-  const startedAt = Date.parse(tool.started_at);
-  const finishedAt = Date.parse(tool.finished_at);
-  const knownTool = KNOWN_TOOLS.has(tool.tool_name) ? (tool.tool_name as ToolName) : undefined;
-
-  if (tool.tool_name === "run_tests" && isRunTestsOutput(tool.output)) {
-    const output = tool.output;
-    const tests: TestSummary = {
-      passed: output.passed,
-      failed: output.failed,
-      warnings: 0,
-      totalTimeMs: finishedAt - startedAt,
-      tests: output.failing_tests.map((f) => ({
-        name: f.name,
-        status: "failed",
-        durationMs: 0,
-        error: f.message,
-      })),
-    };
-    return {
-      id: tool.call_id,
-      agentRole: "coder",
-      tool: knownTool,
-      title: "Run Tests",
-      message: `${output.passed} passed, ${output.failed} failed`,
-      status: "done",
-      startedAt,
-      finishedAt,
-      durationMs: finishedAt - startedAt,
-      tests,
-    };
-  }
-
-  return {
-    id: tool.call_id,
-    agentRole: "coder",
-    tool: knownTool,
-    title: tool.tool_name,
-    message: tool.success ? summarize(tool.output) : (tool.error ?? "Tool call failed."),
-    status: "done",
-    startedAt,
-    finishedAt,
-    durationMs: finishedAt - startedAt,
-  };
+function str(args: Record<string, unknown>, key: string): string {
+  const value = args[key];
+  return typeof value === "string" ? value : "";
 }
 
 const KNOWN_TOOLS = new Set<string>([
@@ -134,6 +107,111 @@ const KNOWN_TOOLS = new Set<string>([
 ]);
 
 const KNOWN_ROLES = new Set<string>(["planner", "coder", "reviewer"]);
+
+function toolResultToEvent(tool: RawToolResult): TimelineEvent {
+  const startedAt = Date.parse(tool.started_at);
+  const finishedAt = Date.parse(tool.finished_at);
+  const knownTool = KNOWN_TOOLS.has(tool.tool_name) ? (tool.tool_name as ToolName) : undefined;
+  const base = {
+    id: tool.call_id,
+    agentRole: "coder" as AgentRole,
+    tool: knownTool,
+    args: tool.arguments,
+    status: "done" as const,
+    startedAt,
+    finishedAt,
+    durationMs: finishedAt - startedAt,
+  };
+
+  if (!tool.success) {
+    return { ...base, title: tool.tool_name, message: tool.error ?? "Tool call failed." };
+  }
+
+  switch (tool.tool_name) {
+    case "run_tests": {
+      if (!isRunTestsOutput(tool.output)) break;
+      const output = tool.output;
+      const tests: TestSummary = {
+        passed: output.passed,
+        failed: output.failed,
+        warnings: 0,
+        totalTimeMs: finishedAt - startedAt,
+        tests: output.failing_tests.map((f) => ({
+          name: f.name,
+          status: "failed",
+          durationMs: 0,
+          error: f.message,
+        })),
+      };
+      return {
+        ...base,
+        title: "Run Tests",
+        message: `${output.passed} passed, ${output.failed} failed`,
+        tests,
+      };
+    }
+    case "search_code": {
+      if (!isSearchMatches(tool.output)) break;
+      const matches: CodeMatch[] = tool.output.map((m) => ({
+        file: m.file,
+        line: m.line,
+        snippet: m.text,
+      }));
+      return {
+        ...base,
+        title: "Search Code",
+        message: `Searching for "${str(tool.arguments, "pattern")}"...`,
+        detail: `${matches.length} matches found`,
+        matches,
+      };
+    }
+    case "read_file": {
+      const path = str(tool.arguments, "path");
+      const content = typeof tool.output === "string" ? tool.output : "";
+      return {
+        ...base,
+        title: "Read File",
+        message: `Reading ${path}...`,
+        fileContent: { path, language: path.endsWith(".py") ? "python" : "plaintext", content },
+      };
+    }
+    case "write_file": {
+      const path = str(tool.arguments, "path");
+      const content = str(tool.arguments, "content");
+      return {
+        ...base,
+        title: "Write File",
+        message: `Wrote ${path}`,
+        fileContent: { path, language: path.endsWith(".py") ? "python" : "plaintext", content },
+      };
+    }
+    case "edit_file": {
+      const path = str(tool.arguments, "path");
+      const oldStr = str(tool.arguments, "old_str");
+      const newStr = str(tool.arguments, "new_str");
+      return {
+        ...base,
+        title: "Edit File",
+        message: `Edited ${path}`,
+        diff: diffFromEditArgs(path, oldStr, newStr),
+      };
+    }
+    case "apply_patch": {
+      const diff = parseUnifiedDiff(str(tool.arguments, "diff"));
+      return { ...base, title: "Apply Patch", message: "Applied a patch.", diff: diff ?? undefined };
+    }
+    case "git_diff": {
+      const diff = typeof tool.output === "string" ? parseUnifiedDiff(tool.output) : null;
+      return { ...base, title: "Git Diff", message: "Reviewing the working tree diff.", diff: diff ?? undefined };
+    }
+    case "list_dir": {
+      const entries = Array.isArray(tool.output) ? (tool.output as unknown[]).length : 0;
+      return { ...base, title: "List Directory", message: "Scanning repository structure...", detail: `${entries} entries found` };
+    }
+  }
+
+  return { ...base, title: tool.tool_name, message: summarize(tool.output) };
+}
 
 function toTimelineEvents(raw: RawTaskState): TimelineEvent[] {
   const agentMessages = raw.messages.filter((m) => m.name && KNOWN_ROLES.has(m.name));
@@ -177,6 +255,18 @@ function toTimelineEvents(raw: RawTaskState): TimelineEvent[] {
   return events;
 }
 
+const FILE_TOUCHING_TOOLS = new Set(["write_file", "edit_file", "apply_patch"]);
+
+function extractFilesModified(raw: RawTaskState): string[] {
+  const paths = new Set<string>();
+  for (const tool of raw.tool_results) {
+    if (!tool.success || !FILE_TOUCHING_TOOLS.has(tool.tool_name)) continue;
+    const path = str(tool.arguments, "path");
+    if (path) paths.add(path);
+  }
+  return [...paths];
+}
+
 export interface RunHandle {
   cancel: () => void;
   skip: () => void;
@@ -216,6 +306,7 @@ export function pollRealTask(
             totalTokens: raw.total_tokens,
             totalCostUsd: raw.total_cost_usd,
             timeline: toTimelineEvents(raw),
+            filesModified: extractFilesModified(raw),
             updatedAt: Date.now(),
             failureReason:
               raw.status === "failed"

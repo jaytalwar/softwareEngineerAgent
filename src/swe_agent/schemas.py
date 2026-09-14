@@ -42,6 +42,7 @@ class ToolResult(BaseModel):
 
     call_id: str
     tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
     success: bool
     output: Any = None
     error: str | None = None

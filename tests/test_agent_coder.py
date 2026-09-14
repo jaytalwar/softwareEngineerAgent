@@ -28,6 +28,7 @@ def test_coder_executes_a_tool_call_then_finishes(sandbox_copy: Path) -> None:
     assert len(result.tool_results) == 1
     assert result.tool_results[0].tool_name == "write_file"
     assert result.tool_results[0].success is True
+    assert result.tool_results[0].arguments == {"path": "notes.txt", "content": "hi\n"}
     assert result.iteration == 1
     assert len(llm.calls) == 2
 

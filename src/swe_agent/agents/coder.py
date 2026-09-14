@@ -91,6 +91,7 @@ def _call_one_tool(repo_root: Path, tool_use: ToolUse, state: TaskState) -> dict
         ToolResult(
             call_id=tool_use.id,
             tool_name=tool_use.name,
+            arguments=tool_use.arguments,
             success=success,
             output=content if success else None,
             error=error,
