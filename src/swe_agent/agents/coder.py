@@ -10,6 +10,7 @@ from swe_agent.llm import LLMClient, ToolUse
 from swe_agent.orchestrator.engine import NodeFunc
 from swe_agent.schemas import AgentMessage, TaskState, ToolResult
 from swe_agent.tools import ToolError
+from swe_agent.trace import Tracer
 
 CODER_SYSTEM_PROMPT = (
     "You are the coding agent in a multi-agent software engineering system. "
@@ -20,7 +21,13 @@ CODER_SYSTEM_PROMPT = (
 )
 
 
-def make_coder_node(llm: LLMClient, repo_root: Path, *, max_tool_iterations: int = 10) -> NodeFunc:
+def make_coder_node(
+    llm: LLMClient,
+    repo_root: Path,
+    *,
+    max_tool_iterations: int = 10,
+    tracer: Tracer | None = None,
+) -> NodeFunc:
     tools = tool_definitions(repo_root)
 
     def coder(state: TaskState) -> TaskState:
@@ -40,9 +47,8 @@ def make_coder_node(llm: LLMClient, repo_root: Path, *, max_tool_iterations: int
                 break
 
             conversation.append({"role": "assistant", "content": response.content_blocks})
-            conversation.append(
-                {"role": "user", "content": _run_tool_calls(repo_root, response.tool_uses, state)}
-            )
+            tool_results = _run_tool_calls(repo_root, response.tool_uses, state, tracer)
+            conversation.append({"role": "user", "content": tool_results})
 
         state.messages.append(AgentMessage(role="assistant", name="coder", content=final_text))
         return state
@@ -51,37 +57,50 @@ def make_coder_node(llm: LLMClient, repo_root: Path, *, max_tool_iterations: int
 
 
 def _run_tool_calls(
-    repo_root: Path, tool_uses: list[ToolUse], state: TaskState
+    repo_root: Path,
+    tool_uses: list[ToolUse],
+    state: TaskState,
+    tracer: Tracer | None,
 ) -> list[dict[str, Any]]:
     tool_result_blocks: list[dict[str, Any]] = []
     for tool_use in tool_uses:
-        started_at = utcnow()
-        try:
-            output = execute_tool(repo_root, tool_use.name, tool_use.arguments)
-            content = output if isinstance(output, str) else json.dumps(output)
-            success, error = True, None
-        except ToolError as exc:
-            content = f"Error: {exc}"
-            success, error = False, str(exc)
-        finished_at = utcnow()
-
-        state.tool_results.append(
-            ToolResult(
-                call_id=tool_use.id,
-                tool_name=tool_use.name,
-                success=success,
-                output=content if success else None,
-                error=error,
-                started_at=started_at,
-                finished_at=finished_at,
-            )
-        )
-        tool_result_blocks.append(
-            {
-                "type": "tool_result",
-                "tool_use_id": tool_use.id,
-                "content": content,
-                "is_error": not success,
-            }
-        )
+        if tracer is None:
+            tool_result_blocks.append(_call_one_tool(repo_root, tool_use, state))
+            continue
+        with tracer.span(kind="tool", name=tool_use.name, input=tool_use.arguments) as span:
+            block = _call_one_tool(repo_root, tool_use, state)
+            span.output = block["content"]
+            if block["is_error"]:
+                span.error = block["content"]
+        tool_result_blocks.append(block)
     return tool_result_blocks
+
+
+def _call_one_tool(repo_root: Path, tool_use: ToolUse, state: TaskState) -> dict[str, Any]:
+    started_at = utcnow()
+    try:
+        output = execute_tool(repo_root, tool_use.name, tool_use.arguments)
+        content = output if isinstance(output, str) else json.dumps(output)
+        success, error = True, None
+    except ToolError as exc:
+        content = f"Error: {exc}"
+        success, error = False, str(exc)
+    finished_at = utcnow()
+
+    state.tool_results.append(
+        ToolResult(
+            call_id=tool_use.id,
+            tool_name=tool_use.name,
+            success=success,
+            output=content if success else None,
+            error=error,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+    )
+    return {
+        "type": "tool_result",
+        "tool_use_id": tool_use.id,
+        "content": content,
+        "is_error": not success,
+    }

@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 from fakes import FakeLLMClient, text_response, tool_use_response
 from swe_agent.agents.coder import make_coder_node
 from swe_agent.schemas import AgentMessage, TaskState
+from swe_agent.trace import Tracer
 
 
 def test_coder_executes_a_tool_call_then_finishes(sandbox_copy: Path) -> None:
@@ -49,6 +51,30 @@ def test_coder_feeds_tool_errors_back_to_the_model_and_recovers(sandbox_copy: Pa
     tool_result_block = second_call_messages[-1]["content"][0]
     assert tool_result_block["is_error"] is True
     assert "no such file" in tool_result_block["content"]
+
+
+def test_coder_records_a_tool_level_trace_event_per_call(
+    sandbox_copy: Path, tmp_path: Path
+) -> None:
+    llm = FakeLLMClient(
+        responses=[
+            tool_use_response(
+                "write_file", {"path": "notes.txt", "content": "hi\n"}, tool_use_id="tu_1"
+            ),
+            text_response("Done."),
+        ]
+    )
+    tracer = Tracer("coder-trace-test", trace_dir=tmp_path)
+    node = make_coder_node(llm, sandbox_copy, tracer=tracer)
+    state = TaskState(messages=[AgentMessage(role="user", content="Write hi to notes.txt")])
+
+    node(state)
+
+    lines = [json.loads(line) for line in tracer.path.read_text().splitlines()]
+    assert len(lines) == 1
+    assert lines[0]["kind"] == "tool"
+    assert lines[0]["name"] == "write_file"
+    assert lines[0]["error"] is None
 
 
 def test_coder_stops_after_max_tool_iterations(sandbox_copy: Path) -> None:

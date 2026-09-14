@@ -16,6 +16,7 @@ from swe_agent.llm import LLMClient
 from swe_agent.orchestrator.engine import NodeFunc
 from swe_agent.schemas import AgentMessage, TaskState, ToolResult
 from swe_agent.tools import ToolError
+from swe_agent.trace import Tracer
 
 REVIEWER_SYSTEM_PROMPT = (
     "You are the reviewing agent in a multi-agent software engineering system. "
@@ -25,10 +26,12 @@ REVIEWER_SYSTEM_PROMPT = (
 )
 
 
-def make_reviewer_node(llm: LLMClient, repo_root: Path) -> NodeFunc:
+def make_reviewer_node(
+    llm: LLMClient, repo_root: Path, *, tracer: Tracer | None = None
+) -> NodeFunc:
     def reviewer(state: TaskState) -> TaskState:
         state.iteration += 1
-        test_result = _run_tests(repo_root, state)
+        test_result = _run_tests(repo_root, state, tracer)
 
         if test_result["failed"] == 0 and test_result["errors"] == 0:
             state.status = "succeeded"
@@ -37,7 +40,7 @@ def make_reviewer_node(llm: LLMClient, repo_root: Path) -> NodeFunc:
             )
             return state
 
-        lint_result = _run_lint(repo_root)
+        lint_result = _run_lint(repo_root, tracer)
         response = llm.complete(
             system=REVIEWER_SYSTEM_PROMPT,
             messages=[
@@ -60,22 +63,15 @@ def make_reviewer_node(llm: LLMClient, repo_root: Path) -> NodeFunc:
     return reviewer
 
 
-def _run_tests(repo_root: Path, state: TaskState) -> dict[str, Any]:
+def _run_tests(repo_root: Path, state: TaskState, tracer: Tracer | None) -> dict[str, Any]:
     started_at = utcnow()
-    try:
-        result: dict[str, Any] = execute_tool(repo_root, "run_tests", {})
-        success = result["failed"] == 0 and result["errors"] == 0
-        error = None
-    except ToolError as exc:
-        result = {
-            "total": 0,
-            "passed": 0,
-            "failed": 0,
-            "errors": 1,
-            "failing_tests": [{"name": "run_tests", "message": str(exc)}],
-        }
-        success = False
-        error = str(exc)
+    if tracer is not None:
+        with tracer.span(kind="tool", name="run_tests", input={}) as span:
+            result, success, error = _call_run_tests(repo_root)
+            span.output = result
+            span.error = error
+    else:
+        result, success, error = _call_run_tests(repo_root)
     finished_at = utcnow()
 
     state.tool_results.append(
@@ -92,7 +88,31 @@ def _run_tests(repo_root: Path, state: TaskState) -> dict[str, Any]:
     return result
 
 
-def _run_lint(repo_root: Path) -> list[dict[str, Any]]:
+def _call_run_tests(repo_root: Path) -> tuple[dict[str, Any], bool, str | None]:
+    try:
+        result: dict[str, Any] = execute_tool(repo_root, "run_tests", {})
+        return result, result["failed"] == 0 and result["errors"] == 0, None
+    except ToolError as exc:
+        result = {
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "errors": 1,
+            "failing_tests": [{"name": "run_tests", "message": str(exc)}],
+        }
+        return result, False, str(exc)
+
+
+def _run_lint(repo_root: Path, tracer: Tracer | None) -> list[dict[str, Any]]:
+    if tracer is None:
+        return _call_lint(repo_root)
+    with tracer.span(kind="tool", name="get_lint_diagnostics", input={}) as span:
+        result = _call_lint(repo_root)
+        span.output = result
+    return result
+
+
+def _call_lint(repo_root: Path) -> list[dict[str, Any]]:
     try:
         result: list[dict[str, Any]] = execute_tool(repo_root, "get_lint_diagnostics", {})
         return result

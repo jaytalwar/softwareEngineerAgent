@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 from fakes import FakeLLMClient, text_response
 from swe_agent.agents.reviewer import make_reviewer_node
 from swe_agent.schemas import TaskState
+from swe_agent.trace import Tracer
 
 
 def _passing_repo(tmp_path: Path) -> Path:
@@ -44,6 +46,20 @@ def test_reviewer_requests_changes_when_tests_fail(sandbox: Path) -> None:
     assert len(llm.calls) == 1
     assert result.tool_results[-1].tool_name == "run_tests"
     assert result.tool_results[-1].success is False
+
+
+def test_reviewer_records_a_run_tests_trace_event(sandbox: Path, tmp_path: Path) -> None:
+    llm = FakeLLMClient(responses=[text_response("feedback")])
+    tracer = Tracer("reviewer-trace-test", trace_dir=tmp_path)
+    node = make_reviewer_node(llm, sandbox, tracer=tracer)
+    state = TaskState()
+
+    node(state)
+
+    lines = [json.loads(line) for line in tracer.path.read_text().splitlines()]
+    names = [line["name"] for line in lines]
+    assert "run_tests" in names
+    assert all(line["kind"] == "tool" for line in lines)
 
 
 def test_reviewer_increments_iteration(sandbox: Path) -> None:
