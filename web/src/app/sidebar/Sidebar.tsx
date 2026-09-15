@@ -22,6 +22,7 @@ interface SidebarProps {
   offline: boolean;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  onOpenSettings: () => void;
 }
 
 export function Sidebar({
@@ -38,6 +39,7 @@ export function Sidebar({
   offline,
   mobileOpen,
   onCloseMobile,
+  onOpenSettings,
 }: SidebarProps) {
   return (
     <>
@@ -110,7 +112,7 @@ export function Sidebar({
         </div>
 
         <div className={styles.footer}>
-          <button type="button" className={styles.settingsButton}>
+          <button type="button" className={styles.settingsButton} onClick={onOpenSettings}>
             <SettingsIcon size={14} /> Settings
           </button>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />

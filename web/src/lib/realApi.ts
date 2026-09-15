@@ -9,7 +9,7 @@
  * `filesModified` is derived from `arguments.path` here.
  */
 import { diffFromEditArgs, parseUnifiedDiff } from "./diffParser";
-import type { AgentRole, CodeMatch, Task, TestSummary, TimelineEvent, ToolName } from "./types";
+import type { AgentRole, CodeMatch, RepoNode, Task, TestSummary, TimelineEvent, ToolName } from "./types";
 
 export const API_BASE = "http://localhost:8000";
 
@@ -21,6 +21,18 @@ export async function checkBackendHealth(): Promise<{ ok: boolean; llmMode?: str
     return { ok: true, llmMode: data.llm_mode };
   } catch {
     return { ok: false };
+  }
+}
+
+/** Fetches the real, live file tree of a real task's actual repo_root —
+ * re-fetch as the task progresses to see files appear/change for real. */
+export async function fetchRepoTree(realTaskId: string): Promise<RepoNode | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/tasks/${realTaskId}/tree`);
+    if (!res.ok) return null;
+    return (await res.json()) as RepoNode;
+  } catch {
+    return null;
   }
 }
 

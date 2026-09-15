@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { MenuIcon, PanelIcon } from "../components/icons";
 import type { RepoNode, Task } from "../lib/types";
 import { Inspector } from "./inspector/Inspector";
+import { SettingsModal } from "./SettingsModal";
 import { Sidebar } from "./sidebar/Sidebar";
 import type { ThemePreference } from "./useTheme";
 import styles from "./AppShell.module.css";
@@ -25,6 +26,9 @@ interface AppShellProps {
   inspectorOpen: boolean;
   onCloseInspector: () => void;
   onOpenInspector: () => void;
+  settingsOpen: boolean;
+  onOpenSettings: () => void;
+  onCloseSettings: () => void;
   children: ReactNode;
 }
 
@@ -47,6 +51,9 @@ export function AppShell({
   inspectorOpen,
   onCloseInspector,
   onOpenInspector,
+  settingsOpen,
+  onOpenSettings,
+  onCloseSettings,
   children,
 }: AppShellProps) {
   return (
@@ -65,6 +72,7 @@ export function AppShell({
         offline={offline}
         mobileOpen={sidebarOpen}
         onCloseMobile={onCloseSidebar}
+        onOpenSettings={onOpenSettings}
       />
 
       <div className={styles.main}>
@@ -95,6 +103,7 @@ export function AppShell({
       </div>
 
       <Inspector task={activeTask} open={inspectorOpen} onClose={onCloseInspector} />
+      {settingsOpen && <SettingsModal onClose={onCloseSettings} />}
     </div>
   );
 }

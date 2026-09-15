@@ -68,7 +68,7 @@ export function useTasks() {
       if (useReal) {
         createRealTask(title)
           .then(({ taskId: realId, llmMode }) => {
-            updateTask(id, (t) => ({ ...t, llmMode }));
+            updateTask(id, (t) => ({ ...t, llmMode, realTaskId: realId }));
             const handle = pollRealTask(realId, (updater) => updateTask(id, updater));
             handles.current.set(id, handle);
           })

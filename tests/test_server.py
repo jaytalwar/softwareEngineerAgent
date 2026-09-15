@@ -4,7 +4,19 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from swe_agent import server as server_module
 from swe_agent.server import create_app
+
+
+@pytest.fixture(autouse=True)
+def reset_settings() -> Any:
+    # _SETTINGS is module-global (session-only settings, by design — see
+    # server.py) — reset it around every test so one test's POST
+    # /api/settings can't leak into the next.
+    original = dict(server_module._SETTINGS)
+    yield
+    server_module._SETTINGS.clear()
+    server_module._SETTINGS.update(original)
 
 
 @pytest.fixture
@@ -88,3 +100,97 @@ def test_stream_endpoint_404s_for_an_unknown_task(client: TestClient) -> None:
     response = client.get("/api/tasks/does-not-exist/stream")
 
     assert response.status_code == 404
+
+
+def test_tree_endpoint_reflects_the_real_repo_root(client: TestClient) -> None:
+    task_id = client.post("/api/tasks", json={"title": "Fix the failing test"}).json()["task_id"]
+
+    response = client.get(f"/api/tasks/{task_id}/tree")
+
+    assert response.status_code == 200
+    tree = response.json()
+    assert tree["type"] == "dir"
+    assert tree["path"] == ""
+    names = {child["name"] for child in tree["children"]}
+    assert "tests" in names
+    assert "math_utils.py" in names
+
+    tests_dir = next(c for c in tree["children"] if c["name"] == "tests")
+    test_names = {c["name"] for c in tests_dir["children"]}
+    assert "test_math_utils.py" in test_names
+    assert all(c["path"].startswith("tests/") for c in tests_dir["children"])
+
+
+def test_tree_endpoint_404s_for_an_unknown_task(client: TestClient) -> None:
+    response = client.get("/api/tasks/does-not-exist/tree")
+
+    assert response.status_code == 404
+
+
+def test_get_settings_reports_defaults_and_never_a_key_value(client: TestClient) -> None:
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["has_api_key"] is False
+    assert body["model"] == "claude-sonnet-5"
+    assert body["max_iterations"] == 20
+    assert "claude-sonnet-5" in body["available_models"]
+    assert "api_key" not in body
+
+
+def test_post_settings_updates_model_and_max_iterations(client: TestClient) -> None:
+    response = client.post(
+        "/api/settings", json={"model": "claude-opus-5", "max_iterations": 5}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model"] == "claude-opus-5"
+    assert body["max_iterations"] == 5
+    assert body["has_api_key"] is False
+
+
+def test_post_settings_rejects_an_unknown_model(client: TestClient) -> None:
+    response = client.post("/api/settings", json={"model": "not-a-real-model"})
+
+    assert response.status_code == 400
+
+
+def test_post_settings_rejects_a_non_positive_max_iterations(client: TestClient) -> None:
+    response = client.post("/api/settings", json={"max_iterations": 0})
+
+    assert response.status_code == 400
+
+
+def test_post_settings_sets_and_clears_the_api_key_without_ever_returning_it(
+    client: TestClient,
+) -> None:
+    set_response = client.post("/api/settings", json={"api_key": "sk-test-key"})
+    assert set_response.json()["has_api_key"] is True
+    assert "sk-test-key" not in set_response.text
+
+    health = client.get("/api/health").json()
+    assert health["llm_mode"] == "anthropic"
+
+    clear_response = client.post("/api/settings", json={"api_key": ""})
+    assert clear_response.json()["has_api_key"] is False
+    assert client.get("/api/health").json()["llm_mode"] == "scripted-fallback"
+
+
+def test_new_tasks_use_the_configured_default_max_iterations(client: TestClient) -> None:
+    client.post("/api/settings", json={"max_iterations": 7})
+
+    task = client.post("/api/tasks", json={"title": "Fix the failing test"}).json()
+
+    assert task["max_iterations"] == 7
+
+
+def test_task_level_max_iterations_overrides_the_configured_default(client: TestClient) -> None:
+    client.post("/api/settings", json={"max_iterations": 7})
+
+    task = client.post(
+        "/api/tasks", json={"title": "Fix the failing test", "max_iterations": 3}
+    ).json()
+
+    assert task["max_iterations"] == 3

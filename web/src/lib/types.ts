@@ -92,6 +92,10 @@ export interface Task {
   filesModified: string[];
   failureReason?: string;
   source: TaskSource;
+  /** The backend's own task id — distinct from `id` above (this task's
+   * client-generated id, assigned before the create call resolves so the
+   * task can appear in the UI optimistically). Only set for `source: "real"`. */
+  realTaskId?: string;
   llmMode?: string;
 }
 

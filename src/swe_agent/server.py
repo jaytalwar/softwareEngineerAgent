@@ -37,7 +37,7 @@ from pydantic import BaseModel
 
 from swe_agent.agents.graph import build_agent_graph
 from swe_agent.agents.scripted_fallback_llm import ScriptedFallbackLLMClient
-from swe_agent.llm import AnthropicLLMClient, LLMClient
+from swe_agent.llm import DEFAULT_MODEL, AnthropicLLMClient, LLMClient
 from swe_agent.orchestrator.engine import Budget, BudgetExceededError, GraphExecutionError
 from swe_agent.schemas import AgentMessage, TaskState
 from swe_agent.trace import Tracer
@@ -46,6 +46,26 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEMO_REPO_TEMPLATE = _PROJECT_ROOT / "sandbox_fixtures"
 _TRACE_DIR = _PROJECT_ROOT / "traces"
 
+AVAILABLE_MODELS = [
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-haiku-4-5-20251001",
+    "claude-fable-5-1",
+]
+
+DEFAULT_MAX_ITERATIONS = 20
+
+# Session-only settings, held in memory: an API key entered here overrides
+# $ANTHROPIC_API_KEY for the lifetime of this process, is never written to
+# disk or echoed back in any response, and is lost on restart. Traffic
+# between the UI and this bridge never leaves loopback, so plain HTTP here
+# carries the same exposure as any other local dev server.
+_SETTINGS: dict[str, Any] = {
+    "api_key": None,
+    "model": DEFAULT_MODEL,
+    "max_iterations": DEFAULT_MAX_ITERATIONS,
+}
+
 
 @dataclass
 class TaskRecord:
@@ -53,6 +73,7 @@ class TaskRecord:
     title: str
     repo_root: Path
     llm_mode: str
+    max_iterations: int
     error: str | None = None
 
 
@@ -63,7 +84,7 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=4)
 class CreateTaskRequest(BaseModel):
     title: str
     repo_root: str | None = None
-    max_iterations: int = 20
+    max_iterations: int | None = None
 
 
 class TaskSummary(BaseModel):
@@ -71,7 +92,24 @@ class TaskSummary(BaseModel):
     title: str
     status: str
     llm_mode: str
+    max_iterations: int
     repo_root: str
+
+
+class SettingsUpdate(BaseModel):
+    """`api_key`: omit to leave unchanged, `""` to clear it, a value to set
+    it. Never returned back in `SettingsView` — only whether one is set."""
+
+    api_key: str | None = None
+    model: str | None = None
+    max_iterations: int | None = None
+
+
+class SettingsView(BaseModel):
+    has_api_key: bool
+    model: str
+    max_iterations: int
+    available_models: list[str]
 
 
 def create_app() -> FastAPI:
@@ -101,17 +139,24 @@ def create_app() -> FastAPI:
         else:
             repo_root = _fresh_demo_repo()
 
+        max_iterations = (
+            req.max_iterations if req.max_iterations is not None else _SETTINGS["max_iterations"]
+        )
         task_id = uuid.uuid4().hex[:10]
         state = TaskState(
             task_id=task_id,
             messages=[AgentMessage(role="user", content=req.title)],
         )
         record = TaskRecord(
-            state=state, title=req.title, repo_root=repo_root, llm_mode=_llm_mode()
+            state=state,
+            title=req.title,
+            repo_root=repo_root,
+            llm_mode=_llm_mode(),
+            max_iterations=max_iterations,
         )
         _TASKS[task_id] = record
 
-        budget = Budget(max_iterations=req.max_iterations)
+        budget = Budget(max_iterations=max_iterations)
         _EXECUTOR.submit(_run_task, task_id, budget)
 
         return _summary(record)
@@ -134,16 +179,55 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "task not found")
         return StreamingResponse(_tail_trace(task_id), media_type="text/event-stream")
 
+    @app.get("/api/tasks/{task_id}/tree")
+    def get_tree(task_id: str) -> dict[str, Any]:
+        record = _TASKS.get(task_id)
+        if record is None:
+            raise HTTPException(404, "task not found")
+        return _build_tree(record.repo_root, record.repo_root)
+
+    @app.get("/api/settings", response_model=SettingsView)
+    def get_settings() -> SettingsView:
+        return _settings_view()
+
+    @app.post("/api/settings", response_model=SettingsView)
+    def update_settings(body: SettingsUpdate) -> SettingsView:
+        if body.api_key is not None:
+            _SETTINGS["api_key"] = body.api_key or None
+        if body.model is not None:
+            if body.model not in AVAILABLE_MODELS:
+                raise HTTPException(400, f"unknown model: {body.model!r}")
+            _SETTINGS["model"] = body.model
+        if body.max_iterations is not None:
+            if body.max_iterations < 1:
+                raise HTTPException(400, "max_iterations must be at least 1")
+            _SETTINGS["max_iterations"] = body.max_iterations
+        return _settings_view()
+
     return app
 
 
+def _settings_view() -> SettingsView:
+    return SettingsView(
+        has_api_key=bool(_effective_api_key()),
+        model=_SETTINGS["model"],
+        max_iterations=_SETTINGS["max_iterations"],
+        available_models=AVAILABLE_MODELS,
+    )
+
+
+def _effective_api_key() -> str | None:
+    return _SETTINGS["api_key"] or os.environ.get("ANTHROPIC_API_KEY")
+
+
 def _llm_mode() -> str:
-    return "anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "scripted-fallback"
+    return "anthropic" if _effective_api_key() else "scripted-fallback"
 
 
 def _make_llm() -> LLMClient:
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return AnthropicLLMClient()
+    api_key = _effective_api_key()
+    if api_key:
+        return AnthropicLLMClient(model=_SETTINGS["model"], api_key=api_key)
     return ScriptedFallbackLLMClient()
 
 
@@ -153,12 +237,42 @@ def _fresh_demo_repo() -> Path:
     return dest
 
 
+_TREE_SKIP_DIRS = {
+    ".git",
+    "__pycache__",
+    ".venv",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    "node_modules",
+}
+
+
+def _build_tree(root: Path, current: Path) -> dict[str, Any]:
+    """Recursively walk `current` (within `root`) into the frontend's
+    `RepoNode` shape: `{type, name, path, children?}`. Matches
+    `web/src/lib/types.ts`'s `RepoNode` exactly — no DTO layer needed."""
+    rel_path = "" if current == root else str(current.relative_to(root))
+    name = root.name if current == root else current.name
+
+    if current.is_dir():
+        children = [
+            _build_tree(root, child)
+            for child in sorted(current.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+            if child.name not in _TREE_SKIP_DIRS
+        ]
+        return {"type": "dir", "name": name, "path": rel_path, "children": children}
+
+    return {"type": "file", "name": name, "path": rel_path}
+
+
 def _summary(record: TaskRecord) -> TaskSummary:
     return TaskSummary(
         task_id=record.state.task_id,
         title=record.title,
         status=record.state.status,
         llm_mode=record.llm_mode,
+        max_iterations=record.max_iterations,
         repo_root=str(record.repo_root),
     )
 
