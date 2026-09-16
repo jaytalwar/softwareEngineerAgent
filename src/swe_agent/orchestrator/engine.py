@@ -36,6 +36,22 @@ class BudgetExceededError(GraphExecutionError):
         self.state = state
 
 
+class TaskCancelledError(GraphExecutionError):
+    """Raised when `cancel_requested` reports true between graph steps.
+
+    Cancellation is only checked between nodes (the same point `Budget` is
+    checked), not inside one — a node already running (e.g. the Coder
+    mid-way through its own internal tool-call loop) always finishes that
+    node first. This is a coarser grain than mid-tool-call interruption,
+    but requires no changes to node internals and matches how `Budget`
+    already works.
+    """
+
+    def __init__(self, message: str, *, state: TaskState) -> None:
+        super().__init__(message)
+        self.state = state
+
+
 @dataclass(frozen=True)
 class Budget:
     """A task-level guardrail: caps iterations and, optionally, tokens/cost."""
@@ -105,6 +121,7 @@ class GraphEngine:
         max_steps: int = 10_000,
         budget: Budget | None = None,
         tracer: Tracer | None = None,
+        cancel_requested: Callable[[], bool] | None = None,
     ) -> TaskState:
         """Run the graph to completion (until a node routes to `END`).
 
@@ -113,6 +130,10 @@ class GraphEngine:
         runs and raises `BudgetExceededError` the moment the task's own
         iteration/token/cost counters cross their configured limit — this
         is what actually stops a runaway task, independent of `max_steps`.
+        `cancel_requested`, if given, is checked at the same point as
+        `budget` and raises `TaskCancelledError` the moment it returns
+        true — this is what a caller-initiated "stop this task" wires
+        into, checked between nodes rather than inside one.
         `tracer`, if given, records one `"agent"` trace event per node run
         — a compact `{iteration, status}` snapshot before/after, and the
         node's token cost as the `total_tokens` delta it produced. A node
@@ -136,6 +157,8 @@ class GraphEngine:
                 if violation is not None:
                     message = f"task {state.task_id} stopped: {violation}"
                     raise BudgetExceededError(message, state=state)
+            if cancel_requested is not None and cancel_requested():
+                raise TaskCancelledError(f"task {state.task_id} cancelled", state=state)
             current = self._next_node(current, state)
             steps += 1
         return state

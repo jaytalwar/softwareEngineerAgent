@@ -23,10 +23,11 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import uuid
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,12 @@ from pydantic import BaseModel
 from swe_agent.agents.graph import build_agent_graph
 from swe_agent.agents.scripted_fallback_llm import ScriptedFallbackLLMClient
 from swe_agent.llm import DEFAULT_MODEL, AnthropicLLMClient, LLMClient
-from swe_agent.orchestrator.engine import Budget, BudgetExceededError, GraphExecutionError
+from swe_agent.orchestrator.engine import (
+    Budget,
+    BudgetExceededError,
+    GraphExecutionError,
+    TaskCancelledError,
+)
 from swe_agent.schemas import AgentMessage, TaskState
 from swe_agent.trace import Tracer
 
@@ -75,6 +81,7 @@ class TaskRecord:
     llm_mode: str
     max_iterations: int
     error: str | None = None
+    cancel_event: threading.Event = field(default_factory=threading.Event)
 
 
 _TASKS: dict[str, TaskRecord] = {}
@@ -94,6 +101,17 @@ class TaskSummary(BaseModel):
     llm_mode: str
     max_iterations: int
     repo_root: str
+
+
+class RepoValidateRequest(BaseModel):
+    path: str
+
+
+class RepoValidateResponse(BaseModel):
+    valid: bool
+    name: str | None = None
+    is_git_repo: bool = False
+    error: str | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -133,7 +151,7 @@ def create_app() -> FastAPI:
     @app.post("/api/tasks", response_model=TaskSummary)
     def create_task(req: CreateTaskRequest) -> TaskSummary:
         if req.repo_root:
-            repo_root = Path(req.repo_root)
+            repo_root = Path(req.repo_root).expanduser().resolve()
             if not repo_root.is_dir():
                 raise HTTPException(400, f"repo_root does not exist: {repo_root}")
         else:
@@ -179,12 +197,37 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "task not found")
         return StreamingResponse(_tail_trace(task_id), media_type="text/event-stream")
 
+    @app.post("/api/tasks/{task_id}/cancel", response_model=TaskSummary)
+    def cancel_task(task_id: str) -> TaskSummary:
+        record = _TASKS.get(task_id)
+        if record is None:
+            raise HTTPException(404, "task not found")
+        if record.state.status not in _TERMINAL_STATUSES:
+            record.cancel_event.set()
+        return _summary(record)
+
     @app.get("/api/tasks/{task_id}/tree")
     def get_tree(task_id: str) -> dict[str, Any]:
         record = _TASKS.get(task_id)
         if record is None:
             raise HTTPException(404, "task not found")
         return _build_tree(record.repo_root, record.repo_root)
+
+    @app.post("/api/repos/validate", response_model=RepoValidateResponse)
+    def validate_repo(body: RepoValidateRequest) -> RepoValidateResponse:
+        raw = body.path.strip()
+        if not raw:
+            return RepoValidateResponse(valid=False, error="Enter a path.")
+        path = Path(raw).expanduser().resolve()
+        if not path.exists():
+            return RepoValidateResponse(valid=False, error=f"No such path: {path}")
+        if not path.is_dir():
+            return RepoValidateResponse(
+                valid=False, error="That path is a file, not a directory."
+            )
+        return RepoValidateResponse(
+            valid=True, name=path.name, is_git_repo=(path / ".git").exists()
+        )
 
     @app.get("/api/settings", response_model=SettingsView)
     def get_settings() -> SettingsView:
@@ -277,13 +320,23 @@ def _summary(record: TaskRecord) -> TaskSummary:
     )
 
 
+_TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
+
+
 def _run_task(task_id: str, budget: Budget) -> None:
     record = _TASKS[task_id]
     tracer = Tracer(task_id, trace_dir=_TRACE_DIR)
     llm = _make_llm()
     engine = build_agent_graph(llm, record.repo_root, tracer=tracer)
     try:
-        engine.run(record.state, budget=budget, tracer=tracer)
+        engine.run(
+            record.state,
+            budget=budget,
+            tracer=tracer,
+            cancel_requested=record.cancel_event.is_set,
+        )
+    except TaskCancelledError as exc:
+        exc.state.status = "cancelled"
     except BudgetExceededError as exc:
         exc.state.status = "failed"
         record.error = str(exc)
@@ -306,7 +359,7 @@ async def _tail_trace(task_id: str) -> AsyncIterator[bytes]:
                 yield f"data: {line}\n\n".encode()
             seen = len(lines)
 
-        if record is None or record.state.status in ("succeeded", "failed", "cancelled"):
+        if record is None or record.state.status in _TERMINAL_STATUSES:
             payload = json.dumps(
                 {
                     "status": record.state.status if record else "unknown",

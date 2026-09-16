@@ -8,6 +8,9 @@ function makeId(): string {
 export interface RunHandle {
   cancel: () => void;
   skip: () => void;
+  /** Only meaningful for real tasks — there's no backend execution here to
+   * interrupt, so simulated handles simply omit it. */
+  stop?: () => void;
 }
 
 function toDoneEvent(step: ScenarioStep, id: string, startedAt: number, finishedAt: number): TimelineEvent {

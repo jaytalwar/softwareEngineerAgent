@@ -7,20 +7,22 @@ import { Landing } from "./features/landing/Landing";
 import { Workspace } from "./features/workspace/Workspace";
 import { fetchRepoTree } from "./lib/realApi";
 import { ACME_STORE_TREE } from "./lib/repoTree";
-import type { RepoNode } from "./lib/types";
+import { loadConnectedRepo, saveConnectedRepo } from "./lib/storage";
+import type { ConnectedRepo, RepoNode } from "./lib/types";
 import { useOnline } from "./lib/useOnline";
 
 const DEMO_TASK_TITLE = "Fix the authentication bug and make sure all tests pass.";
 
 export default function App() {
   const { theme, toggle } = useTheme();
-  const { tasks, isRefreshing, backendAvailable, startTask, skipTask } = useTasks();
+  const { tasks, isRefreshing, backendAvailable, startTask, skipTask, stopTask } = useTasks();
   const [route, navigate] = useHashRoute();
   const isOffline = !useOnline();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [realRepoTree, setRealRepoTree] = useState<RepoNode | null>(null);
+  const [connectedRepo, setConnectedRepo] = useState<ConnectedRepo | null>(() => loadConnectedRepo());
 
   const match = /^\/task\/(.+)$/.exec(route);
   const activeTaskId = match ? match[1] : null;
@@ -46,9 +48,19 @@ export default function App() {
   const repoTree = isRealTask ? realRepoTree : hasConnectedRepo ? ACME_STORE_TREE : null;
 
   function handleStart(title: string, isDemo: boolean) {
-    const id = startTask(title, isDemo);
+    const id = startTask(title, isDemo, connectedRepo);
     navigate(`/task/${id}`);
     setSidebarOpen(false);
+  }
+
+  function handleConnectRepo(repo: ConnectedRepo) {
+    setConnectedRepo(repo);
+    saveConnectedRepo(repo);
+  }
+
+  function handleDisconnectRepo() {
+    setConnectedRepo(null);
+    saveConnectedRepo(null);
   }
 
   return (
@@ -82,7 +94,11 @@ export default function App() {
       onCloseSettings={() => setSettingsOpen(false)}
     >
       {activeTask ? (
-        <Workspace task={activeTask} onSkip={() => skipTask(activeTask.id)} />
+        <Workspace
+          task={activeTask}
+          onSkip={() => skipTask(activeTask.id)}
+          onStop={() => stopTask(activeTask.id)}
+        />
       ) : (
         <Landing
           onSubmit={(title) => handleStart(title, false)}
@@ -90,6 +106,9 @@ export default function App() {
           disabled={isOffline}
           disabledReason={isOffline ? "Reconnect to start a new task." : undefined}
           backendAvailable={backendAvailable}
+          connectedRepo={connectedRepo}
+          onConnectRepo={handleConnectRepo}
+          onDisconnectRepo={handleDisconnectRepo}
         />
       )}
     </AppShell>

@@ -41,6 +41,10 @@
   color: var(--danger);
 }
 
+.cancelled {
+  color: var(--text-tertiary);
+}
+
 @keyframes pulse {
   0%,
   100% {

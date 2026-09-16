@@ -1,0 +1,111 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 0 var(--space-4);
+  font-size: var(--text-xs);
+}
+
+.icon {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.label {
+  color: var(--text-tertiary);
+}
+
+.label strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.linkButton:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.editRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.input {
+  width: min(380px, 100%);
+  height: 34px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.iconButton:hover {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+}
+
+.error {
+  font-size: var(--text-xs);
+  color: var(--danger);
+  text-align: center;
+  margin: 0;
+}
+
+.hint {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  max-width: 46ch;
+  margin: 0;
+}

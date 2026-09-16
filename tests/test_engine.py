@@ -10,6 +10,7 @@ from swe_agent.orchestrator.engine import (
     BudgetExceededError,
     GraphEngine,
     GraphExecutionError,
+    TaskCancelledError,
 )
 from swe_agent.schemas import AgentMessage, TaskState
 from swe_agent.trace import Tracer
@@ -215,6 +216,45 @@ def test_budget_does_not_interfere_when_task_finishes_within_limits() -> None:
 
     assert result.status == "succeeded"
     assert result.iteration == 3
+
+
+def test_cancel_requested_stops_a_running_task() -> None:
+    def spin(state: TaskState) -> TaskState:
+        state.iteration += 1
+        return state
+
+    engine = _build_runaway_engine(spin)
+    calls = 0
+
+    def cancel_after_three() -> bool:
+        nonlocal calls
+        calls += 1
+        return calls > 3
+
+    with pytest.raises(TaskCancelledError, match="cancelled") as exc_info:
+        engine.run(TaskState(), cancel_requested=cancel_after_three)
+
+    assert exc_info.value.state.iteration == 4
+
+
+def test_cancel_requested_does_not_interfere_when_never_true() -> None:
+    def attempt(state: TaskState) -> TaskState:
+        state.iteration += 1
+        if state.iteration >= 3:
+            state.status = "succeeded"
+        return state
+
+    def route(state: TaskState) -> str:
+        return "done" if state.status == "succeeded" else "retry"
+
+    engine = GraphEngine()
+    engine.add_node("attempt", attempt)
+    engine.set_entry_point("attempt")
+    engine.add_conditional_edges("attempt", route, {"retry": "attempt", "done": END})
+
+    result = engine.run(TaskState(), cancel_requested=lambda: False)
+
+    assert result.status == "succeeded"
 
 
 def test_tracer_records_one_event_per_node(tmp_path: Path) -> None:

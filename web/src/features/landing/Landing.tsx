@@ -1,6 +1,8 @@
 import { useRef } from "react";
 import { Button } from "../../components/Button";
 import { CommandBar } from "../../app/CommandBar";
+import type { ConnectedRepo } from "../../lib/types";
+import { RepoConnect } from "./RepoConnect";
 import styles from "./Landing.module.css";
 
 interface LandingProps {
@@ -9,6 +11,9 @@ interface LandingProps {
   disabled: boolean;
   disabledReason?: string;
   backendAvailable: boolean;
+  connectedRepo: ConnectedRepo | null;
+  onConnectRepo: (repo: ConnectedRepo) => void;
+  onDisconnectRepo: () => void;
 }
 
 const STEPS = ["Understand", "Plan", "Code", "Test", "Verify"];
@@ -19,6 +24,9 @@ export function Landing({
   disabled,
   disabledReason,
   backendAvailable,
+  connectedRepo,
+  onConnectRepo,
+  onDisconnectRepo,
 }: LandingProps) {
   const commandBarRef = useRef<HTMLDivElement>(null);
 
@@ -67,6 +75,12 @@ export function Landing({
             ? "Backend connected — a typed task runs the real agent."
             : "Backend not detected — tasks run in simulation. Run Demo always works."}
         </p>
+        <RepoConnect
+          connectedRepo={connectedRepo}
+          onConnect={onConnectRepo}
+          onDisconnect={onDisconnectRepo}
+          disabled={!backendAvailable}
+        />
         <CommandBar onSubmit={onSubmit} disabled={disabled} disabledReason={disabledReason} />
       </div>
     </div>

@@ -102,3 +102,11 @@ export interface Task {
 export type RepoNode =
   | { type: "dir"; name: string; path: string; children: RepoNode[] }
   | { type: "file"; name: string; path: string };
+
+/** A real, on-disk repository the user has pointed the agent at, in place
+ * of the throwaway demo repo. Persisted so it survives a reload. */
+export interface ConnectedRepo {
+  path: string;
+  name: string;
+  isGitRepo: boolean;
+}

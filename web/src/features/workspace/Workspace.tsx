@@ -8,6 +8,7 @@ import styles from "./Workspace.module.css";
 interface WorkspaceProps {
   task: Task;
   onSkip: () => void;
+  onStop: () => void;
 }
 
 const SOURCE_LABEL: Record<Task["source"], string> = {
@@ -16,10 +17,11 @@ const SOURCE_LABEL: Record<Task["source"], string> = {
   "generic-mock": "Simulated",
 };
 
-export function Workspace({ task, onSkip }: WorkspaceProps) {
+export function Workspace({ task, onSkip, onStop }: WorkspaceProps) {
   const activity = deriveActivity(task);
   const isActive = task.status === "running" || task.status === "pending";
   const canSkip = isActive && task.source !== "real";
+  const canStop = isActive && task.source === "real";
 
   return (
     <div className={styles.wrap}>
@@ -39,6 +41,11 @@ export function Workspace({ task, onSkip }: WorkspaceProps) {
           {canSkip && (
             <Button variant="ghost" size="md" onClick={onSkip}>
               Skip animation
+            </Button>
+          )}
+          {canStop && (
+            <Button variant="ghost" size="md" onClick={onStop}>
+              Stop
             </Button>
           )}
         </div>

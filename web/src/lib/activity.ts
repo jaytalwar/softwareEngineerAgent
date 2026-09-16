@@ -1,10 +1,21 @@
 import type { Task } from "./types";
 
-export type ActivityState = "idle" | "planning" | "working" | "testing" | "reviewing" | "success" | "failed";
+export type ActivityState =
+  | "idle"
+  | "planning"
+  | "working"
+  | "testing"
+  | "reviewing"
+  | "success"
+  | "failed"
+  | "cancelled";
 
 export function deriveActivity(task: Task): { state: ActivityState; label: string } {
   if (task.status === "succeeded") return { state: "success", label: "Task completed" };
   if (task.status === "failed") return { state: "failed", label: task.failureReason ?? "Stopped" };
+  if (task.status === "cancelled") {
+    return { state: "cancelled", label: task.failureReason ?? "Stopped by user" };
+  }
 
   const last = task.timeline.at(-1);
   if (!last) return { state: "planning", label: "Understanding the task..." };

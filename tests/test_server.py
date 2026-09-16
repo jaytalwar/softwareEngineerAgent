@@ -1,10 +1,13 @@
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from swe_agent import server as server_module
+from swe_agent.orchestrator.engine import Budget
+from swe_agent.schemas import AgentMessage, TaskState
 from swe_agent.server import create_app
 
 
@@ -102,6 +105,51 @@ def test_stream_endpoint_404s_for_an_unknown_task(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_cancel_unknown_task_returns_404(client: TestClient) -> None:
+    response = client.post("/api/tasks/does-not-exist/cancel")
+
+    assert response.status_code == 404
+
+
+def test_cancel_on_an_already_completed_task_is_a_no_op(client: TestClient) -> None:
+    task_id = client.post("/api/tasks", json={"title": "Fix the failing test"}).json()["task_id"]
+    _wait_for_terminal_status(client, task_id)
+
+    response = client.post(f"/api/tasks/{task_id}/cancel")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "succeeded"
+
+
+def test_run_task_stops_early_and_marks_cancelled_when_requested(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Exercises server.py's own wiring (TaskRecord.cancel_event ->
+    # _run_task -> engine.run(cancel_requested=...) -> status update)
+    # directly, bypassing the HTTP + background-executor path used by the
+    # other tests: cancelling *through* that path is a genuine race against
+    # a graph that, on the scripted fallback, can finish in well under a
+    # millisecond. Setting the event before `_run_task` is ever called
+    # guarantees the cancellation is seen at the very first check point
+    # (right after the planner node), deterministically.
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    task_id = "cancel-test-task"
+    state = TaskState(task_id=task_id, messages=[AgentMessage(role="user", content="Fix it")])
+    record = server_module.TaskRecord(
+        state=state,
+        title="Fix it",
+        repo_root=tmp_path,
+        llm_mode="scripted-fallback",
+        max_iterations=20,
+    )
+    record.cancel_event.set()
+    server_module._TASKS[task_id] = record
+
+    server_module._run_task(task_id, Budget(max_iterations=20))
+
+    assert record.state.status == "cancelled"
+
+
 def test_tree_endpoint_reflects_the_real_repo_root(client: TestClient) -> None:
     task_id = client.post("/api/tasks", json={"title": "Fix the failing test"}).json()["task_id"]
 
@@ -194,3 +242,52 @@ def test_task_level_max_iterations_overrides_the_configured_default(client: Test
     ).json()
 
     assert task["max_iterations"] == 3
+
+
+def test_validate_repo_accepts_a_real_directory(client: TestClient, tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+
+    response = client.post("/api/repos/validate", json={"path": str(tmp_path)})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is True
+    assert body["name"] == tmp_path.name
+    assert body["is_git_repo"] is True
+
+
+def test_validate_repo_reports_a_non_git_directory(client: TestClient, tmp_path: Path) -> None:
+    response = client.post("/api/repos/validate", json={"path": str(tmp_path)})
+
+    assert response.json()["is_git_repo"] is False
+
+
+def test_validate_repo_rejects_a_missing_path(client: TestClient, tmp_path: Path) -> None:
+    response = client.post("/api/repos/validate", json={"path": str(tmp_path / "nope")})
+
+    body = response.json()
+    assert body["valid"] is False
+    assert body["error"]
+
+
+def test_validate_repo_rejects_a_file(client: TestClient, tmp_path: Path) -> None:
+    file_path = tmp_path / "not-a-dir.txt"
+    file_path.write_text("hi")
+
+    response = client.post("/api/repos/validate", json={"path": str(file_path)})
+
+    assert response.json()["valid"] is False
+
+
+def test_validate_repo_rejects_an_empty_path(client: TestClient) -> None:
+    response = client.post("/api/repos/validate", json={"path": "  "})
+
+    assert response.json()["valid"] is False
+
+
+def test_create_task_accepts_a_real_repo_root(client: TestClient, tmp_path: Path) -> None:
+    task = client.post(
+        "/api/tasks", json={"title": "Fix the failing test", "repo_root": str(tmp_path)}
+    ).json()
+
+    assert task["repo_root"] == str(tmp_path.resolve())

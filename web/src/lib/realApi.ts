@@ -24,6 +24,41 @@ export async function checkBackendHealth(): Promise<{ ok: boolean; llmMode?: str
   }
 }
 
+export interface RepoValidation {
+  valid: boolean;
+  name?: string;
+  isGitRepo?: boolean;
+  error?: string;
+}
+
+/** Checks a local filesystem path before the user commits to it — the
+ * create-task call would 400 on a bad path too, but validating up front
+ * lets the UI show the repo name (and whether it's a git repo) before any
+ * task exists. */
+export async function validateRepoPath(path: string): Promise<RepoValidation> {
+  try {
+    const res = await fetch(`${API_BASE}/api/repos/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const body = (await res.json()) as {
+      valid: boolean;
+      name: string | null;
+      is_git_repo: boolean;
+      error: string | null;
+    };
+    return {
+      valid: body.valid,
+      name: body.name ?? undefined,
+      isGitRepo: body.is_git_repo,
+      error: body.error ?? undefined,
+    };
+  } catch {
+    return { valid: false, error: "Could not reach the backend." };
+  }
+}
+
 /** Fetches the real, live file tree of a real task's actual repo_root —
  * re-fetch as the task progresses to see files appear/change for real. */
 export async function fetchRepoTree(realTaskId: string): Promise<RepoNode | null> {
@@ -282,15 +317,31 @@ function extractFilesModified(raw: RawTaskState): string[] {
 export interface RunHandle {
   cancel: () => void;
   skip: () => void;
+  stop: () => void;
+}
+
+/** Asks the backend to stop a running real task. Cancellation is only
+ * checked between the Planner/Coder/Reviewer graph steps (see
+ * `TaskCancelledError` in `orchestrator/engine.py`), so a task already
+ * mid-step finishes that step first — this doesn't return the task's
+ * final status, `pollRealTask`'s existing loop picks up "cancelled" once
+ * the backend applies it. */
+export async function cancelRealTask(taskId: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/tasks/${taskId}/cancel`, { method: "POST" });
+  } catch {
+    // Best effort — if the backend is unreachable there's nothing to cancel.
+  }
 }
 
 export async function createRealTask(
   title: string,
+  repoRoot?: string,
 ): Promise<{ taskId: string; llmMode: string }> {
   const res = await fetch(`${API_BASE}/api/tasks`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(repoRoot ? { title, repo_root: repoRoot } : { title }),
   });
   if (!res.ok) {
     throw new Error(`create task failed: ${res.status}`);
@@ -323,9 +374,13 @@ export function pollRealTask(
             failureReason:
               raw.status === "failed"
                 ? "The agent stopped without completing the task — see the timeline above."
-                : undefined,
+                : raw.status === "cancelled"
+                  ? "Stopped by user request."
+                  : undefined,
           }));
-          if (raw.status === "succeeded" || raw.status === "failed") return;
+          if (raw.status === "succeeded" || raw.status === "failed" || raw.status === "cancelled") {
+            return;
+          }
         }
       } catch {
         // transient network hiccup against a local dev server — keep polling
@@ -342,6 +397,12 @@ export function pollRealTask(
     skip: () => {
       // Real execution can't be fast-forwarded — the UI hides "Skip
       // animation" for real tasks (see Workspace.tsx's `source` check).
+    },
+    stop: () => {
+      // Fire-and-forget: the ongoing poll loop above picks up the
+      // "cancelled" status once the backend applies it (checked between
+      // graph nodes, not instantly) and stops itself at that point.
+      void cancelRealTask(taskId);
     },
   };
 }

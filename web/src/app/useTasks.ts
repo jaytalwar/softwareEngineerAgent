@@ -3,7 +3,7 @@ import { buildDemoScenario, buildGenericScenario } from "../lib/demoScript";
 import { checkBackendHealth, createRealTask, pollRealTask } from "../lib/realApi";
 import { runScenario, type RunHandle } from "../lib/simulationEngine";
 import { loadCachedTasks, saveCachedTasks } from "../lib/storage";
-import type { Task } from "../lib/types";
+import type { ConnectedRepo, Task } from "../lib/types";
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -43,7 +43,7 @@ export function useTasks() {
   }, []);
 
   const startTask = useCallback(
-    (title: string, isDemo: boolean): string => {
+    (title: string, isDemo: boolean, connectedRepo?: ConnectedRepo | null): string => {
       const now = Date.now();
       const id = makeId();
       const useReal = !isDemo && backendAvailable;
@@ -59,14 +59,16 @@ export function useTasks() {
         totalCostUsd: 0,
         budgetMaxIterations: 20,
         timeline: [],
-        repoName: useReal ? "sandbox_fixtures (throwaway copy)" : "acme-store",
+        repoName: useReal
+          ? (connectedRepo?.name ?? "sandbox_fixtures (throwaway copy)")
+          : "acme-store",
         filesModified: [],
         source: isDemo ? "demo" : useReal ? "real" : "generic-mock",
       };
       setTasks((prev) => [task, ...prev]);
 
       if (useReal) {
-        createRealTask(title)
+        createRealTask(title, connectedRepo?.path)
           .then(({ taskId: realId, llmMode }) => {
             updateTask(id, (t) => ({ ...t, llmMode, realTaskId: realId }));
             const handle = pollRealTask(realId, (updater) => updateTask(id, updater));
@@ -95,5 +97,9 @@ export function useTasks() {
     handles.current.get(taskId)?.skip();
   }, []);
 
-  return { tasks, isRefreshing, backendAvailable, startTask, skipTask };
+  const stopTask = useCallback((taskId: string) => {
+    handles.current.get(taskId)?.stop?.();
+  }, []);
+
+  return { tasks, isRefreshing, backendAvailable, startTask, skipTask, stopTask };
 }
