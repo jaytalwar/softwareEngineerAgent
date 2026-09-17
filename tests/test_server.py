@@ -1,3 +1,5 @@
+import json
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -175,6 +177,19 @@ def test_tree_endpoint_404s_for_an_unknown_task(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_tree_endpoint_404s_when_the_repo_root_no_longer_exists(
+    client: TestClient, tmp_path: Path
+) -> None:
+    task_id = client.post(
+        "/api/tasks", json={"title": "Fix it", "repo_root": str(tmp_path)}
+    ).json()["task_id"]
+    shutil.rmtree(tmp_path)
+
+    response = client.get(f"/api/tasks/{task_id}/tree")
+
+    assert response.status_code == 404
+
+
 def test_get_settings_reports_defaults_and_never_a_key_value(client: TestClient) -> None:
     response = client.get("/api/settings")
 
@@ -291,3 +306,92 @@ def test_create_task_accepts_a_real_repo_root(client: TestClient, tmp_path: Path
     ).json()
 
     assert task["repo_root"] == str(tmp_path.resolve())
+
+
+def test_create_task_persists_a_json_file_immediately(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module, "_TASKS_DIR", tmp_path / "tasks")
+
+    task_id = client.post("/api/tasks", json={"title": "Fix it"}).json()["task_id"]
+
+    saved = json.loads((tmp_path / "tasks" / f"{task_id}.json").read_text())
+    assert saved["title"] == "Fix it"
+    assert saved["state"]["task_id"] == task_id
+
+
+def test_completed_task_is_persisted_with_its_final_status(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module, "_TASKS_DIR", tmp_path / "tasks")
+
+    task_id = client.post("/api/tasks", json={"title": "Fix the failing test"}).json()["task_id"]
+    _wait_for_terminal_status(client, task_id)
+
+    saved = json.loads((tmp_path / "tasks" / f"{task_id}.json").read_text())
+    assert saved["state"]["status"] == "succeeded"
+
+
+def test_load_tasks_from_disk_restores_a_completed_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module, "_TASKS_DIR", tmp_path / "tasks")
+    record = server_module.TaskRecord(
+        state=TaskState(task_id="restored-1", status="succeeded"),
+        title="Old task",
+        repo_root=tmp_path,
+        llm_mode="scripted-fallback",
+        max_iterations=20,
+    )
+    server_module._save_task(record)
+
+    server_module._load_tasks_from_disk()
+
+    restored = server_module._TASKS["restored-1"]
+    assert restored.state.status == "succeeded"
+    assert restored.title == "Old task"
+
+
+def test_load_tasks_from_disk_marks_an_interrupted_task_as_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module, "_TASKS_DIR", tmp_path / "tasks")
+    record = server_module.TaskRecord(
+        state=TaskState(task_id="restored-2", status="running"),
+        title="Old task",
+        repo_root=tmp_path,
+        llm_mode="scripted-fallback",
+        max_iterations=20,
+    )
+    server_module._save_task(record)
+
+    server_module._load_tasks_from_disk()
+
+    restored = server_module._TASKS["restored-2"]
+    assert restored.state.status == "failed"
+    assert restored.error == "Interrupted by a server restart."
+    # The reconciled status is written back, so it doesn't flip-flop on
+    # every subsequent restart.
+    saved = json.loads((tmp_path / "tasks" / "restored-2.json").read_text())
+    assert saved["state"]["status"] == "failed"
+
+
+def test_load_tasks_from_disk_skips_a_corrupted_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    (tasks_dir / "broken.json").write_text("{not valid json")
+    monkeypatch.setattr(server_module, "_TASKS_DIR", tasks_dir)
+
+    server_module._load_tasks_from_disk()  # must not raise
+
+    assert "broken" not in server_module._TASKS
+
+
+def test_load_tasks_from_disk_is_a_no_op_without_a_tasks_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(server_module, "_TASKS_DIR", tmp_path / "does-not-exist")
+
+    server_module._load_tasks_from_disk()  # must not raise

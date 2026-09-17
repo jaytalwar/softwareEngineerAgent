@@ -11,11 +11,13 @@ progress — this is exactly what the tracing infrastructure (step 5/6 of
 BUILD_LOG) was built for, not a parallel notification mechanism bolted on
 top of it.
 
-This is a local development bridge, not a hardened multi-user service: task
-state lives in an in-process dict (lost on restart), there's no auth, and
-concurrent reads of a task's `TaskState` while its worker thread mutates it
-are not lock-protected (acceptable for one local user driving one browser
-tab; see BUILD_LOG for the honest caveats).
+This is a local development bridge, not a hardened multi-user service:
+there's no auth, and concurrent reads of a task's `TaskState` while its
+worker thread mutates it are not lock-protected (acceptable for one local
+user driving one browser tab; see BUILD_LOG for the honest caveats). Task
+*history* does survive a restart, though — each task is written to
+`tasks/<id>.json` on creation and again once it reaches a terminal status,
+and reloaded into `_TASKS` at startup (see `_load_tasks_from_disk`).
 """
 
 import asyncio
@@ -51,6 +53,7 @@ from swe_agent.trace import Tracer
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEMO_REPO_TEMPLATE = _PROJECT_ROOT / "sandbox_fixtures"
 _TRACE_DIR = _PROJECT_ROOT / "traces"
+_TASKS_DIR = _PROJECT_ROOT / "tasks"
 
 AVAILABLE_MODELS = [
     "claude-sonnet-5",
@@ -82,6 +85,19 @@ class TaskRecord:
     max_iterations: int
     error: str | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
+
+
+class _PersistedRecord(BaseModel):
+    """The on-disk shape of a `TaskRecord` — everything except
+    `cancel_event`, which isn't serializable and is meaningless after a
+    restart anyway: no worker thread survives to be cancelled."""
+
+    state: TaskState
+    title: str
+    repo_root: str
+    llm_mode: str
+    max_iterations: int
+    error: str | None = None
 
 
 _TASKS: dict[str, TaskRecord] = {}
@@ -173,6 +189,7 @@ def create_app() -> FastAPI:
             max_iterations=max_iterations,
         )
         _TASKS[task_id] = record
+        _save_task(record)
 
         budget = Budget(max_iterations=max_iterations)
         _EXECUTOR.submit(_run_task, task_id, budget)
@@ -211,6 +228,12 @@ def create_app() -> FastAPI:
         record = _TASKS.get(task_id)
         if record is None:
             raise HTTPException(404, "task not found")
+        if not record.repo_root.is_dir():
+            # Expected for an old task restored from disk (see
+            # `_load_tasks_from_disk`) whose demo repo was a temp directory
+            # the OS has since cleaned up — the rest of the task's history
+            # (messages, tool results) is still intact, just not its tree.
+            raise HTTPException(404, "this task's repo no longer exists on disk")
         return _build_tree(record.repo_root, record.repo_root)
 
     @app.post("/api/repos/validate", response_model=RepoValidateResponse)
@@ -323,6 +346,50 @@ def _summary(record: TaskRecord) -> TaskSummary:
 _TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
 
 
+def _task_path(task_id: str) -> Path:
+    return _TASKS_DIR / f"{task_id}.json"
+
+
+def _save_task(record: TaskRecord) -> None:
+    _TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    persisted = _PersistedRecord(
+        state=record.state,
+        title=record.title,
+        repo_root=str(record.repo_root),
+        llm_mode=record.llm_mode,
+        max_iterations=record.max_iterations,
+        error=record.error,
+    )
+    _task_path(record.state.task_id).write_text(persisted.model_dump_json())
+
+
+def _load_tasks_from_disk() -> None:
+    """Restores task history across a server restart. A task that was
+    still `pending`/`running` when the process died has no worker thread
+    left to resume — it's rewritten here as `failed` instead of hanging
+    forever as a fake "in progress" in the UI."""
+    if not _TASKS_DIR.exists():
+        return
+    for path in sorted(_TASKS_DIR.glob("*.json")):
+        try:
+            persisted = _PersistedRecord.model_validate_json(path.read_text())
+        except (ValueError, OSError):
+            continue  # corrupted/partially-written file — skip it, don't crash startup
+        record = TaskRecord(
+            state=persisted.state,
+            title=persisted.title,
+            repo_root=Path(persisted.repo_root),
+            llm_mode=persisted.llm_mode,
+            max_iterations=persisted.max_iterations,
+            error=persisted.error,
+        )
+        if record.state.status in ("pending", "running"):
+            record.state.status = "failed"
+            record.error = "Interrupted by a server restart."
+            _save_task(record)
+        _TASKS[record.state.task_id] = record
+
+
 def _run_task(task_id: str, budget: Budget) -> None:
     record = _TASKS[task_id]
     tracer = Tracer(task_id, trace_dir=_TRACE_DIR)
@@ -346,6 +413,8 @@ def _run_task(task_id: str, budget: Budget) -> None:
     except Exception as exc:  # noqa: BLE001 - surface any crash to the UI instead of hanging it
         record.state.status = "failed"
         record.error = f"{type(exc).__name__}: {exc}"
+    finally:
+        _save_task(record)
 
 
 async def _tail_trace(task_id: str) -> AsyncIterator[bytes]:
@@ -377,5 +446,12 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+
+    # Deliberately not inside `create_app()` or at module scope: this must
+    # only run for the actual dev server process, never on `import
+    # swe_agent.server` (which is all `TestClient(create_app())` does in
+    # tests) — otherwise every test run would load, and get polluted by,
+    # this machine's real `tasks/` history.
+    _load_tasks_from_disk()
 
     uvicorn.run(app, host="127.0.0.1", port=8000)
